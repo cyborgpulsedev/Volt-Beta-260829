@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1200, initial-scale=1">
+<title>Volt — Hero Banner</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Poiret+One&family=Jost:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0A0B10;
+    font-family: 'Jost', sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    padding: 40px;
+  }
+
+  .poster {
+    width: 1200px;
+    height: 630px;
+    background: linear-gradient(135deg, #0A0B10 0%, #101319 40%, #14111e 70%, #0A0B10 100%);
+    border-radius: 12px;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid rgba(255,255,255,.07);
+  }
+
+  /* Glow orbs */
+  .poster::before {
+    content: '';
+    position: absolute;
+    top: -120px;
+    right: -60px;
+    width: 480px;
+    height: 480px;
+    background: radial-gradient(circle, rgba(47,230,255,.18) 0%, rgba(47,230,255,.03) 50%, transparent 70%);
+    border-radius: 50%;
+    pointer-events: none;
+  }
+  .poster::after {
+    content: '';
+    position: absolute;
+    bottom: -160px;
+    left: 180px;
+    width: 380px;
+    height: 380px;
+    background: radial-gradient(circle, rgba(168,85,247,.1) 0%, transparent 60%);
+    border-radius: 50%;
+    pointer-events: none;
+  }
+
+  .body {
+    flex: 1;
+    padding: 80px 80px 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    position: relative;
+    z-index: 1;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(47,230,255,.1);
+    border: 1px solid rgba(47,230,255,.28);
+    border-radius: 999px;
+    padding: 7px 20px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: #2FE6FF;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    margin-bottom: 36px;
+    width: fit-content;
+  }
+  .badge .dot {
+    width: 7px; height: 7px;
+    background: #2FE6FF;
+    border-radius: 50%;
+    box-shadow: 0 0 10px rgba(47,230,255,.7);
+    animation: breathe 2.6s ease-in-out infinite;
+  }
+  @keyframes breathe { 0%,100% { opacity:.35; } 50% { opacity:1; } }
+
+  .title {
+    font-size: 80px;
+    font-family: 'Jost', sans-serif;
+    font-weight: 800;
+    color: #E9EDF9;
+    line-height: 1.06;
+    letter-spacing: -.03em;
+    margin-bottom: 22px;
+  }
+  .title .sweep {
+    background: linear-gradient(90deg, #2FE6FF, #A855F7 55%, #FF3BC8);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .subtitle {
+    font-size: 23px;
+    font-weight: 400;
+    color: #9AA3BC;
+    line-height: 1.55;
+    max-width: 660px;
+  }
+
+  .pill-row {
+    display: flex;
+    gap: 12px;
+    margin-top: 28px;
+  }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255,255,255,.04);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 999px;
+    padding: 7px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #8B96B8;
+  }
+  .pill .ic { font-size: 15px; }
+
+  .bottom-bar {
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 80px;
+    background: rgba(255,255,255,.02);
+    border-top: 1px solid rgba(255,255,255,.06);
+    flex-shrink: 0;
+    position: relative;
+    z-index: 1;
+  }
+  .bottom-bar .logo {
+    font-family: 'Poiret One', cursive;
+    font-size: 22px;
+    letter-spacing: .24em;
+    color: #2FE6FF;
+    text-shadow: 0 0 14px rgba(47,230,255,.55), 0 0 28px rgba(47,230,255,.2);
+  }
+  .bottom-bar .url {
+    font-size: 14px;
+    font-family: 'JetBrains Mono', monospace;
+    color: rgba(255,255,255,.3);
+    letter-spacing: .06em;
+  }
+</style>
+</head>
+<body>
+  <div class="poster">
+    <div class="body">
+      <div class="badge"><div class="dot"></div>Open Source · AGPL-3.0</div>
+      <div class="title">
+        Your PDFs.<br>
+        Your <span class="sweep">AI</span>.<br>
+        Your machine.
+      </div>
+      <div class="subtitle">
+        A local-first PDF editor with built-in AI chat, annotations, OCR, e-signatures, and export — all running on your own hardware. Zero telemetry. Zero accounts.
+      </div>
+      <div class="pill-row">
+        <div class="pill"><span class="ic">🔒</span>100% Local</div>
+        <div class="pill"><span class="ic">🤖</span>Ollama AI</div>
+        <div class="pill"><span class="ic">✍️</span>E-Signatures</div>
+        <div class="pill"><span class="ic">📤</span>Word · Excel · PPT</div>
+      </div>
+    </div>
+    <div class="bottom-bar">
+      <div class="logo">VOLT</div>
+      <div class="url">github.com/cyborgpulsedev/Volt-Beta-260829</div>
+    </div>
+  </div>
+</body>
+</html>

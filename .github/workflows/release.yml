@@ -1,0 +1,361 @@
+# ═══════════════════════════════════════════════════════════════
+#   Volt — Signed release (tag push or manual dispatch)
+#
+#   A tag push `vX.Y.Z` builds the NSIS installer, SIGNS it with the
+#   certificate from the CSC_LINK / CSC_KEY_PASSWORD secrets, and
+#   PUBLISHES it + latest.yml + the .blockmap to GitHub Releases
+#   (scripts/release.cjs refuses to run without a cert, then runs the
+#   sign:check gate on the output — a signed, verified release or no
+#   release at all).
+#
+#   Alternatively a maintainer can trigger it manually via
+#   workflow_dispatch: leave main_sha empty to release the CURRENT tip
+#   of origin/main (the default), or supply an OLDER main SHA (e.g. an
+#   emergency hotfix off a previous line, or a retry of a failed
+#   publish) — that requires confirm_stale_ref=true. Every other guard
+#   applies identically on both paths: the ref must be a commit on
+#   origin/main's history, its sw.js/index.html must be fresh
+#   (npm run check:sw), secrets must be set, the release must be
+#   signed, and the published artifacts must verify. The certificate
+#   guard (self-signed/expired/keyless) runs BEFORE the release is
+#   pre-created, so a run that fails the guard never leaves an empty
+#   release behind — the feed stays untouched until a real CA cert signs
+#   a publish. Retries reuse the pre-created release at ANY age
+#   (EP_GH_IGNORE_TIME), so a re-run a day later re-uploads the fresh
+#   artifacts into the same release — one release per tag, ever, never a
+#   duplicate. After every publish the workflow re-checks the LIVE feed
+#   (releases/latest/download/latest.yml — the URL every installed copy
+#   polls) and fails the run if it does not advertise the published
+#   version: a publish that reported success while leaving the release
+#   empty/stale can never go unnoticed. One reuse is REFUSED: a release that already shipped
+#   (published, with the full latest.yml + installer + blockmap asset
+#   set) fails the run rather than being overwritten — delete it first
+#   (gh release delete vX.Y.Z) to re-publish that version.
+#
+#   The one deliberate exception: scratch_unsigned=true (with GH_TOKEN
+#   only) publishes an UNSIGNED build — the escape hatch for proving
+#   the publish/feed mechanics (latest.yml reachable with real content)
+#   before a real CA cert lands. SmartScreen warnings + no updater
+#   signature verification, so it is testing-only: delete the scratch
+#   release after verifying.
+#
+#   Secrets to configure on the repo:
+#     CSC_LINK            the code-signing PFX as base64 (or a URL)
+#     CSC_KEY_PASSWORD    its password
+#     GH_TOKEN            a GitHub PAT with `repo` scope (a plain
+#                         GITHUB_TOKEN also works once the repo is
+#                         public; private repos need a PAT so the
+#                         auto-updater feed is reachable at all)
+#
+#   Before tagging: bump VERSION + package.json `version` + CHANGELOG
+#   (README "Releasing a version"); the guard steps below refuse a
+#   tag/version mismatch, a tag that doesn't point at the CURRENT tip of
+#   origin/main (so a stale re-tag can't ship without the latest fixes),
+#   a tag whose checked-in sw.js / index.html are stale (regenerate with
+#   `npm run gen:sw`), and `npm run release` refuses unsigned.
+#   ═══════════════════════════════════════════════════════════════
+name: Release (signed)
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      main_sha:
+        description: >-
+          Optional. Full commit SHA on main to release (leave empty to
+          release the CURRENT tip of origin/main). Any main SHA works,
+          but releasing a non-tip SHA requires confirm_stale_ref=true.
+        required: false
+        type: string
+      confirm_stale_ref:
+        description: >-
+          Set true to knowingly release a main SHA that is NOT the
+          current tip of origin/main (emergency hotfix off an older
+          line, retry of a failed publish). The default release (tag
+          push, or dispatch without main_sha) is the current tip and
+          needs no confirmation.
+        required: false
+        type: boolean
+        default: false
+      scratch_unsigned:
+        description: >-
+          TESTING ONLY. Set true to publish an UNSIGNED build (skips
+          the certificate requirement, the cert guard, and sign:check)
+          — proving the publish/feed mechanics (latest.yml reachable
+          with real content) before a real CA cert lands. SmartScreen
+          warnings + NO updater signature verification: delete the
+          scratch release after verifying. Requires only GH_TOKEN.
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  release:
+    name: Build · sign · publish
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: pdf-viewer
+    env:
+      CSC_LINK: ${{ secrets.CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
+      # Retry semantics: electron-builder's GitHub publisher only reuses an
+      # existing release when it is < 2 hours old (its published_at window);
+      # past that it warns "existing release published more than 2 hours ago"
+      # and SKIPS the upload entirely — so a re-run a day later would report
+      # success while leaving the pre-created release empty. The pre-create
+      # step below guarantees exactly ONE release per tag exists to reuse, so
+      # EP_GH_IGNORE_TIME tells the publisher to ignore the age window and
+      # re-upload the fresh artifacts INTO that release (overwriting the old
+      # assets) instead of skipping or creating a second one.
+      EP_GH_IGNORE_TIME: 'true'
+    steps:
+      # Tag push → the tag itself. Manual dispatch → the requested main
+      # SHA (or the current tip when main_sha is empty). fetch-depth: 0
+      # so the on-main ancestry check below can resolve ANY main SHA,
+      # not just the tip.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.main_sha || github.ref }}
+          fetch-depth: 0
+
+      # Fail fast (before the ~3 min dependency install). Every release
+      # must be a commit on origin/main's history; the DEFAULT is the
+      # strict rule that it must also be the CURRENT tip. Re-tagging an
+      # old commit (e.g. re-pointing v1.0.0 at a pre-upgrade SHA) would
+      # publish a release without the latest fixes — and the version-
+      # match guard can't catch it, because the version numbers still
+      # line up. The one deliberate escape hatch: a workflow_dispatch
+      # with confirm_stale_ref=true, which lets a maintainer cut a
+      # release from an OLDER main SHA (still on main's history, still
+      # artifact-guarded below, explicitly acknowledged as not latest).
+      - name: Guard — release ref is on main (current tip by default; dispatch may opt into an older main SHA)
+        run: |
+          $isDispatch = "${{ github.event_name }}" -eq "workflow_dispatch"
+          $confirmed = "${{ github.event.inputs.confirm_stale_ref }}" -eq "true"
+          git fetch origin main
+          $refCommit = (git rev-parse HEAD).Trim()
+          $mainCommit = (git rev-parse FETCH_HEAD).Trim()
+          git merge-base --is-ancestor $refCommit origin/main
+          if ($LASTEXITCODE -ne 0) {
+            throw "release ref $refCommit is not on origin/main — releases can only be cut from a main commit (see README 'Releasing a version')."
+          }
+          if ($refCommit -ne $mainCommit) {
+            if (-not $isDispatch) {
+              throw "tag ${{ github.ref_name }} points at $refCommit, but origin/main is at $mainCommit — re-cut the tag at current main so the release carries the latest fixes (see README 'Releasing a version')."
+            }
+            if (-not $confirmed) {
+              throw "workflow_dispatch picked $refCommit (main is at $mainCommit) without confirm_stale_ref=true — set it to knowingly release an older main SHA."
+            }
+            Write-Host "⚠ releasing older main SHA $refCommit (origin/main is $mainCommit) — confirmed by the maintainer."
+          } else {
+            Write-Host "release ref $refCommit == origin/main HEAD — current main, no confirmation needed."
+          }
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          # repo-root-relative — the lockfile lives under pdf-viewer/
+          cache-dependency-path: pdf-viewer/package-lock.json
+
+      # Fail fast (before the dependency install): the tag's checked-in
+      # sw.js + index.html must match what the generator derives from the
+      # CURRENT tree. A stale artifact — an asset edited, the derived files
+      # never regenerated — would ship a worker that precaches old files
+      # under an old name. The smoke's artifact gates catch this on every
+      # push; this guard catches it on a tag even if the tag predates a
+      # commit that would have failed CI.
+      - name: Guard — generated artifacts match the tree (no stale sw.js / index.html)
+        run: npm run check:sw
+
+      - name: Install dependencies (no postinstall scripts)
+        run: npm ci --no-audit --no-fund --ignore-scripts
+
+      # Restore the Electron binary BEFORE install.js runs — after npm ci
+      # has wiped node_modules — so an unchanged lockfile reuses the cached
+      # dist instead of re-downloading ~110 MB on every release.
+      - name: Cache Electron binary
+        uses: actions/cache@v6
+        with:
+          path: node_modules/electron/dist
+          # hashFiles is repo-root-relative too — hashing a non-existent
+          # file would make the key constant and reuse a stale binary
+          key: electron-${{ runner.os }}-${{ hashFiles('pdf-viewer/package-lock.json') }}
+
+      - name: Install Electron binary
+        run: node node_modules/electron/install.js
+
+      - name: Guard — signing secrets configured (GH_TOKEN always; CSC_LINK unless scratch_unsigned)
+        run: |
+          $scratch = "${{ github.event.inputs.scratch_unsigned }}" -eq "true"
+          if ("$env:GH_TOKEN" -eq "") { throw "GH_TOKEN secret is not set — releases can't be published without it." }
+          if ($scratch) {
+            Write-Host "⚠ SCRATCH UNSIGNED RELEASE — publishing an unsigned installer (SmartScreen + no updater signature check). Feed-mechanics testing only; delete the release after verifying."
+          } elseif ("$env:CSC_LINK" -eq "") {
+            throw "CSC_LINK secret is not set — configure it (and CSC_KEY_PASSWORD) or this release would be unsigned."
+          }
+
+      # Tag pushes carry an explicit version (the tag name); a manual
+      # dispatch has none, its version is simply what the checked-out tree's
+      # package.json says — so this guard is push-only.
+      - name: Guard — tag matches package.json version
+        if: github.event_name == 'push'
+        run: |
+          $tag = "${{ github.ref_name }}".TrimStart('v')
+          $ver = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($tag -ne $ver) {
+            throw "tag v$tag ≠ package.json version $ver — bump VERSION, package.json and CHANGELOG.md first (see README 'Releasing a version')."
+          }
+
+      # The SAME certificate guard release.cjs runs (scripts/signing-setup.cjs
+      # check-release), hoisted here BEFORE the pre-create step: a configured
+      # cert is not enough to release — self-signed (SmartScreen for every
+      # user, updater rejects the chain), expired, or keyless certs must abort
+      # the run BEFORE any release is created. Otherwise the expected
+      # cert-guard failure would leave an empty published release behind,
+      # breaking the feed (releases/latest 200 with no latest.yml asset) and
+      # reddening CI until someone deletes it. With a real CA cert in
+      # CSC_LINK this passes and the pre-create below runs.
+      - name: Guard — release certificate is a real CA cert (not self-signed)
+        if: github.event.inputs.scratch_unsigned != 'true'
+        run: node scripts/signing-setup.cjs check-release
+
+      # electron-builder's GitHub publisher races itself: the blockmap and
+      # the installer artifacts resolve their release CONCURRENTLY, both see
+      # "release doesn't exist", and both create one — seen live on the first
+      # scratch runs: TWO releases for the tag with split assets and a broken
+      # latest.yml feed. Pre-creating the release here, well before the
+      # publish, means both publishers find and reuse the same release.
+      # Retries are covered by EP_GH_IGNORE_TIME (job env): an existing
+      # release is reused at ANY age, so a re-run days later re-uploads into
+      # the same release instead of silently skipping (the publisher's
+      # default 2-hour window) or creating a second one. A found release is
+      # also force-published (draft → release) so a stale draft can't keep
+      # the feed 404ing, and a concurrent create-race (tag push + dispatch
+      # for the same version) falls back to reusing the winner.
+      #
+      # One reuse is REFUSED: a release that has already SHIPPED — published
+      # (not a draft) AND carrying the full NSIS asset set (latest.yml feed +
+      # installer .exe + .blockmap) — was genuinely delivered to users.
+      # Re-running must never silently overwrite artifacts people already
+      # downloaded (a re-tag, an accidental re-dispatch, or a leftover
+      # scratch release). Empty (pre-created, never published), partial
+      # (crashed upload), and draft releases are all retry states and are
+      # reused as before.
+      - name: Pre-create the GitHub release (dedupe the publisher race; reused on retries; refuses to overwrite a shipped release)
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          tag="v${version}"
+          # true when the release is published and its asset set looks like a
+          # completed electron-builder publish (latest.yml + installer +
+          # blockmap) — i.e. a genuinely shipped release, not a pre-created
+          # empty shell or a partial crashed upload. gh hands the JSON to
+          # node (installed by setup-node above) so the predicate is plain
+          # JS, not a gh-version-dependent jq dialect.
+          is_shipped() {
+            gh release view "$1" --json isDraft,assets -q '{draft: .isDraft, names: [.assets[].name]}' 2>/dev/null | node -e '
+              let s = "";
+              process.stdin.on("data", (d) => (s += d));
+              process.stdin.on("end", () => {
+                try {
+                  const r = JSON.parse(s);
+                  const n = r.names || [];
+                  const shipped = !r.draft && n.includes("latest.yml") &&
+                    n.some((x) => /\.exe$/i.test(x)) &&
+                    n.some((x) => /\.blockmap$/i.test(x));
+                  process.stdout.write(shipped ? "true" : "false");
+                } catch { process.stdout.write("false"); }
+              });'
+          }
+          if existing="$(gh release view "$tag" --json isDraft -q .isDraft 2>/dev/null)"; then
+            if [ "$(is_shipped "$tag")" = "true" ]; then
+              echo "::error::release $tag already shipped (published, with latest.yml + installer + blockmap) — refusing to overwrite a genuinely shipped release. If this is a leftover scratch release, delete it with: gh release delete $tag"
+              exit 1
+            fi
+            if [ "$existing" = "true" ]; then
+              gh release edit "$tag" --draft=false
+              echo "converted draft release $tag to published"
+            else
+              echo "release $tag exists but carries no complete asset set (empty or a partial failed publish) — publishers will re-upload into it"
+            fi
+            echo "release $tag already exists — publishers will reuse it"
+          elif gh release create "$tag" --title "$version" --notes-file "release-notes.md" 2>/tmp/release-create.err; then
+            echo "pre-created release $tag"
+          elif gh release view "$tag" >/dev/null 2>&1; then
+            # A concurrent run created it between our view and create — reuse
+            # that one, unless it already shipped (same guard).
+            if [ "$(is_shipped "$tag")" = "true" ]; then
+              echo "::error::release $tag appeared concurrently AND already shipped — refusing to overwrite a genuinely shipped release"
+              exit 1
+            fi
+            echo "release $tag appeared concurrently — reusing it"
+          else
+            cat /tmp/release-create.err
+            exit 1
+          fi
+
+      # scripts/release.cjs: electron-builder --win nsis --publish always
+      # (signs Volt.exe, the installer and the uninstaller with CSC_LINK),
+      # then scripts/check-signing.cjs — exit non-zero unless the artifacts
+      # verify as signed by the configured publisher with a matching
+      # publisherName in app-update.yml (the updater's runtime check).
+      - name: Signed release
+        if: github.event.inputs.scratch_unsigned != 'true'
+        run: npm run release
+
+      # scratch_unsigned: the same publish, but UNSIGNED — CSC_LINK is
+      # blanked at step level (job env would otherwise sign with whatever
+      # cert is configured, and the updater's publisher check would reject
+      # an untrusted chain) and release.cjs skips the cert guard + sign:check.
+      - name: SCRATCH unsigned release (feed-mechanics proof only — delete after verifying)
+        if: github.event.inputs.scratch_unsigned == 'true'
+        env:
+          CSC_LINK: ''
+          CSC_KEY_PASSWORD: ''
+          VOLT_ALLOW_UNSIGNED: '1'
+        run: npm run release
+
+      - name: Verify signed artifacts (belt-and-braces, already run by release)
+        if: github.event.inputs.scratch_unsigned != 'true'
+        run: npm run sign:check
+
+      # Post-publish verification: the publish may have "succeeded" while
+      # the release stayed empty (the >2h upload-skip bug EP_GH_IGNORE_TIME
+      # fixes) or the latest release isn't this one — either way the live
+      # auto-update feed would not advertise the version just published,
+      # and installed copies would never see it. Poll the public feed (the
+      # same URL every installed copy hits) until it answers 200 with the
+      # published version, then fail the run if it never does. This mirrors
+      # the ci.yml feed-version check, but as an in-run self-verification
+      # instead of a next-push gate.
+      - name: Post-publish verification — live feed advertises the published version
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          feed_url="https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/latest.yml"
+          body="$(mktemp)"
+          ok=""
+          for i in $(seq 1 12); do
+            code="$(curl -sSL -o "$body" -w '%{http_code}' "$feed_url" || true)"
+            if [ "$code" = "200" ]; then
+              feed_ver="$(grep -m1 '^version:' "$body" | sed -E 's/^version:[[:space:]]*//' | tr -d '"' | tr -d "'" | xargs || true)"
+              if [ -n "$feed_ver" ] && [ "$feed_ver" = "$version" ]; then
+                ok="true"
+                echo "attempt $i/12: feed advertises ${feed_ver} — matches the published version"
+                break
+              fi
+              echo "attempt $i/12: feed HTTP 200 but advertises ${feed_ver:-<empty>} ≠ ${version} — waiting for propagation"
+            else
+              echo "attempt $i/12: feed HTTP ${code} — waiting for propagation"
+            fi
+            sleep 10
+          done
+          rm -f "$body"
+          if [ "$ok" != "true" ]; then
+            echo "::error::post-publish check failed — the live auto-update feed (${feed_url}) does not advertise the published version ${version}. Installed copies would not see this release as latest. Check the publish output above and the release at https://github.com/${GITHUB_REPOSITORY}/releases/tag/v${version}"
+            exit 1
+          fi

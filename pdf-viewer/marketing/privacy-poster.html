@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1200, initial-scale=1">
+<title>Volt — Privacy Poster</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Poiret+One&family=Jost:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0A0B10;
+    font-family: 'Jost', sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    padding: 40px;
+  }
+
+  .poster {
+    width: 1200px;
+    height: 630px;
+    background: #0A0B10;
+    border-radius: 12px;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid rgba(255,255,255,.07);
+  }
+
+  .body {
+    flex: 1;
+    display: flex;
+  }
+
+  .left {
+    flex: 1;
+    padding: 70px 60px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    position: relative;
+    z-index: 1;
+  }
+
+  .right {
+    width: 420px;
+    padding: 50px 44px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 22px;
+    background: rgba(255,255,255,.015);
+    border-left: 1px solid rgba(255,255,255,.06);
+  }
+
+  .shield {
+    font-size: 44px;
+    margin-bottom: 16px;
+  }
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(61,245,165,.1);
+    border: 1px solid rgba(61,245,165,.22);
+    color: #3DF5A5;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 5px 14px;
+    border-radius: 999px;
+    width: fit-content;
+    margin-bottom: 24px;
+    text-transform: uppercase;
+    letter-spacing: .14em;
+  }
+
+  .title {
+    font-size: 52px;
+    font-weight: 800;
+    color: #E9EDF9;
+    line-height: 1.1;
+    letter-spacing: -.02em;
+    margin-bottom: 18px;
+  }
+  .title .green { color: #3DF5A5; }
+  .title .red {
+    color: #FF4D6D;
+    text-decoration: line-through;
+    text-decoration-thickness: 3px;
+    opacity: .55;
+  }
+
+  .desc {
+    font-size: 18px;
+    color: #8B96B8;
+    line-height: 1.6;
+  }
+
+  .feature-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+  }
+  .feature-icon {
+    width: 38px; height: 38px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+  .feature-icon.never {
+    background: rgba(255,77,109,.1);
+    border: 1px solid rgba(255,77,109,.16);
+  }
+  .feature-icon.always {
+    background: rgba(61,245,165,.1);
+    border: 1px solid rgba(61,245,165,.16);
+  }
+  .feature-text h4 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #E9EDF9;
+    margin-bottom: 3px;
+  }
+  .feature-text p {
+    font-size: 12.5px;
+    color: #565E78;
+    line-height: 1.4;
+  }
+
+  .bottom-bar {
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 60px;
+    background: rgba(255,255,255,.02);
+    border-top: 1px solid rgba(255,255,255,.06);
+    flex-shrink: 0;
+    position: relative;
+    z-index: 1;
+  }
+  .bottom-bar .logo {
+    font-family: 'Poiret One', cursive;
+    font-size: 22px;
+    letter-spacing: .24em;
+    color: #2FE6FF;
+    text-shadow: 0 0 14px rgba(47,230,255,.55), 0 0 28px rgba(47,230,255,.2);
+  }
+  .bottom-bar .url {
+    font-size: 14px;
+    font-family: 'JetBrains Mono', monospace;
+    color: rgba(255,255,255,.3);
+    letter-spacing: .06em;
+  }
+</style>
+</head>
+<body>
+  <div class="poster">
+    <div class="body">
+      <div class="left">
+        <div class="shield">🛡️</div>
+        <div class="tag">🔒 Privacy First</div>
+        <div class="title">
+          <span class="green">Zero</span> telemetry.<br>
+          <span class="green">Zero</span> accounts.<br>
+          <span class="green">Zero</span> <span class="red">tracking</span>.
+        </div>
+        <div class="desc">
+          Volt never phones home. Your PDFs, your AI, your data — all stays on your machine. No cloud. No sign-ups. No compromises.
+        </div>
+      </div>
+      <div class="right">
+        <div class="feature-item">
+          <div class="feature-icon never">🚫</div>
+          <div class="feature-text">
+            <h4>No telemetry</h4>
+            <p>We don't track usage or collect analytics</p>
+          </div>
+        </div>
+        <div class="feature-item">
+          <div class="feature-icon never">🚫</div>
+          <div class="feature-text">
+            <h4>No accounts</h4>
+            <p>Download and use — no sign-up required</p>
+          </div>
+        </div>
+        <div class="feature-item">
+          <div class="feature-icon always">✅</div>
+          <div class="feature-text">
+            <h4>Local AI only</h4>
+            <p>Runs via Ollama — data never leaves your machine</p>
+          </div>
+        </div>
+        <div class="feature-item">
+          <div class="feature-icon always">✅</div>
+          <div class="feature-text">
+            <h4>Open source</h4>
+            <p>AGPL-3.0 — audit the code yourself</p>
+          </div>
+        </div>
+        <div class="feature-item">
+          <div class="feature-icon always">✅</div>
+          <div class="feature-text">
+            <h4>Encrypted storage</h4>
+            <p>Settings and data stay on disk</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="bottom-bar">
+      <div class="logo">VOLT</div>
+      <div class="url">github.com/cyborgpulsedev/Volt-Beta-260829</div>
+    </div>
+  </div>
+</body>
+</html>

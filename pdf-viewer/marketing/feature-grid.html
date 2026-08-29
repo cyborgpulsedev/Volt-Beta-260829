@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1200, initial-scale=1">
+<title>Volt — Feature Grid</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Poiret+One&family=Jost:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0A0B10;
+    font-family: 'Jost', sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    padding: 40px;
+  }
+
+  .poster {
+    width: 1200px;
+    height: 630px;
+    background: linear-gradient(180deg, #0A0B10 0%, #101319 100%);
+    border-radius: 12px;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid rgba(255,255,255,.07);
+  }
+  .poster::before {
+    content: '';
+    position: absolute;
+    top: -200px; left: 50%;
+    transform: translateX(-50%);
+    width: 800px; height: 400px;
+    background: radial-gradient(ellipse, rgba(47,230,255,.08) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .body {
+    flex: 1;
+    padding: 56px 60px 0;
+    position: relative;
+    z-index: 1;
+  }
+
+  .header {
+    text-align: center;
+    margin-bottom: 34px;
+  }
+  .header .label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    color: #2FE6FF;
+    text-transform: uppercase;
+    letter-spacing: .2em;
+    margin-bottom: 10px;
+  }
+  .header h1 {
+    font-size: 44px;
+    font-weight: 800;
+    color: #E9EDF9;
+    letter-spacing: -.02em;
+  }
+  .header h1 span {
+    background: linear-gradient(90deg, #2FE6FF, #A855F7 55%, #FF3BC8);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+  }
+  .card {
+    background: rgba(255,255,255,.025);
+    border: 1px solid rgba(255,255,255,.06);
+    border-radius: 12px;
+    padding: 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .card:hover {
+    background: rgba(255,255,255,.04);
+    border-color: rgba(47,230,255,.22);
+  }
+  .card .emoji { font-size: 30px; }
+  .card h3 {
+    font-size: 15px;
+    font-weight: 700;
+    color: #E9EDF9;
+  }
+  .card p {
+    font-size: 12.5px;
+    color: #565E78;
+    line-height: 1.5;
+  }
+
+  .bottom-bar {
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 60px;
+    background: rgba(255,255,255,.02);
+    border-top: 1px solid rgba(255,255,255,.06);
+    flex-shrink: 0;
+    position: relative;
+    z-index: 1;
+  }
+  .bottom-bar .logo {
+    font-family: 'Poiret One', cursive;
+    font-size: 22px;
+    letter-spacing: .24em;
+    color: #2FE6FF;
+    text-shadow: 0 0 14px rgba(47,230,255,.55), 0 0 28px rgba(47,230,255,.2);
+  }
+  .bottom-bar .url {
+    font-size: 14px;
+    font-family: 'JetBrains Mono', monospace;
+    color: rgba(255,255,255,.3);
+    letter-spacing: .06em;
+  }
+</style>
+</head>
+<body>
+  <div class="poster">
+    <div class="body">
+      <div class="header">
+        <div class="label">All-in-One PDF Suite</div>
+        <h1>Everything you need. <span>Nothing you don't.</span></h1>
+      </div>
+      <div class="grid">
+        <div class="card">
+          <div class="emoji">📄</div>
+          <h3>Smart Reader</h3>
+          <p>Thumbnails, bookmarks, outline navigation, zoom controls, and page search</p>
+        </div>
+        <div class="card">
+          <div class="emoji">🤖</div>
+          <h3>AI Chat</h3>
+          <p>Talk to your documents with local LLMs via Ollama — completely offline</p>
+        </div>
+        <div class="card">
+          <div class="emoji">✨</div>
+          <h3>Annotations</h3>
+          <p>Highlight text, add sticky notes, draw freehand, and manage all annotations</p>
+        </div>
+        <div class="card">
+          <div class="emoji">🔍</div>
+          <h3>OCR</h3>
+          <p>Extract text from scanned documents using Tesseract — runs entirely locally</p>
+        </div>
+        <div class="card">
+          <div class="emoji">✍️</div>
+          <h3>E-Signatures</h3>
+          <p>Add, resize, and position digital signatures with optional RFC 3161 timestamps</p>
+        </div>
+        <div class="card">
+          <div class="emoji">📤</div>
+          <h3>Export</h3>
+          <p>Convert to Word, Excel, PowerPoint, or standalone PDF with embedded annotations</p>
+        </div>
+        <div class="card">
+          <div class="emoji">🔒</div>
+          <h3>Backup & Restore</h3>
+          <p>Full workspace backup with JSON metadata — restore anytime, anywhere</p>
+        </div>
+        <div class="card">
+          <div class="emoji">🔄</div>
+          <h3>Auto-Updates</h3>
+          <p>Self-updating via GitHub Releases — differential updates, minimal bandwidth</p>
+        </div>
+      </div>
+    </div>
+    <div class="bottom-bar">
+      <div class="logo">VOLT</div>
+      <div class="url">github.com/cyborgpulsedev/Volt-Beta-260829</div>
+    </div>
+  </div>
+</body>
+</html>

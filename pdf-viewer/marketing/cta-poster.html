@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1200, initial-scale=1">
+<title>Volt — Download CTA</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Poiret+One&family=Jost:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0A0B10;
+    font-family: 'Jost', sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    padding: 40px;
+  }
+
+  .poster {
+    width: 1200px;
+    height: 630px;
+    background: linear-gradient(135deg, #0A0B10 0%, #101319 50%, #0A0B10 100%);
+    border-radius: 12px;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid rgba(255,255,255,.07);
+  }
+  .poster::before {
+    content: '';
+    position: absolute;
+    top: -140px; right: 80px;
+    width: 460px; height: 460px;
+    background: radial-gradient(circle, rgba(47,230,255,.22) 0%, transparent 60%);
+    border-radius: 50%;
+    filter: blur(30px);
+    pointer-events: none;
+  }
+  .poster::after {
+    content: '';
+    position: absolute;
+    bottom: -180px; left: 120px;
+    width: 380px; height: 380px;
+    background: radial-gradient(circle, rgba(168,85,247,.14) 0%, transparent 60%);
+    border-radius: 50%;
+    filter: blur(30px);
+    pointer-events: none;
+  }
+
+  .body {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 80px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .content {
+    text-align: center;
+    max-width: 750px;
+  }
+
+  .bolt {
+    font-family: 'Poiret One', cursive;
+    font-size: 68px;
+    color: #2FE6FF;
+    text-shadow: 0 0 24px rgba(47,230,255,.6), 0 0 48px rgba(47,230,255,.2);
+    margin-bottom: 16px;
+    line-height: 1;
+    letter-spacing: .1em;
+  }
+
+  .title {
+    font-size: 68px;
+    font-weight: 800;
+    color: #E9EDF9;
+    letter-spacing: -.03em;
+    line-height: 1.1;
+    margin-bottom: 14px;
+  }
+  .title .sweep {
+    background: linear-gradient(90deg, #2FE6FF, #A855F7 55%, #FF3BC8);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .tagline {
+    font-size: 21px;
+    color: #8B96B8;
+    margin-bottom: 36px;
+    font-weight: 400;
+    line-height: 1.5;
+  }
+
+  .cta-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    background: #2FE6FF;
+    border: none;
+    border-radius: 2px;
+    padding: 18px 44px;
+    font-family: 'Jost', sans-serif;
+    font-size: 20px;
+    font-weight: 700;
+    color: #0A0B10;
+    cursor: pointer;
+    text-decoration: none;
+    text-transform: uppercase;
+    letter-spacing: .12em;
+    box-shadow: 0 0 36px rgba(47,230,255,.4), 0 8px 28px rgba(0,0,0,.45);
+    transition: all .2s;
+    margin-bottom: 32px;
+  }
+  .cta-button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 0 54px rgba(47,230,255,.55), 0 12px 36px rgba(0,0,0,.55);
+  }
+  .cta-button .arrow {
+    font-size: 24px;
+    transition: transform .2s;
+  }
+  .cta-button:hover .arrow {
+    transform: translateX(4px);
+  }
+
+  .stats {
+    display: flex;
+    justify-content: center;
+    gap: 44px;
+  }
+  .stat {
+    text-align: center;
+  }
+  .stat .number {
+    font-size: 34px;
+    font-weight: 800;
+    color: #E9EDF9;
+    letter-spacing: -.01em;
+  }
+  .stat .label {
+    font-size: 11.5px;
+    color: #565E78;
+    text-transform: uppercase;
+    letter-spacing: .14em;
+    margin-top: 3px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .bottom-bar {
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 60px;
+    background: rgba(255,255,255,.02);
+    border-top: 1px solid rgba(255,255,255,.06);
+    flex-shrink: 0;
+    position: relative;
+    z-index: 1;
+  }
+  .bottom-bar .logo {
+    font-family: 'Poiret One', cursive;
+    font-size: 22px;
+    letter-spacing: .24em;
+    color: #2FE6FF;
+    text-shadow: 0 0 14px rgba(47,230,255,.55), 0 0 28px rgba(47,230,255,.2);
+  }
+  .bottom-bar .url {
+    font-size: 14px;
+    font-family: 'JetBrains Mono', monospace;
+    color: rgba(255,255,255,.3);
+    letter-spacing: .06em;
+  }
+</style>
+</head>
+<body>
+  <div class="poster">
+    <div class="body">
+      <div class="content">
+        <div class="bolt">⚡</div>
+        <div class="title">
+          Meet <span class="sweep">Volt</span>
+        </div>
+        <div class="tagline">
+          The PDF editor that respects your privacy.<br>
+          Local AI. No accounts. No tracking.
+        </div>
+        <a href="https://github.com/cyborgpulsedev/Volt-Beta-260829/releases/latest" class="cta-button">
+          Download for Windows
+          <span class="arrow">→</span>
+        </a>
+        <div class="stats">
+          <div class="stat">
+            <div class="number">8</div>
+            <div class="label">Core Features</div>
+          </div>
+          <div class="stat">
+            <div class="number">0</div>
+            <div class="label">Data Sent</div>
+          </div>
+          <div class="stat">
+            <div class="number">100%</div>
+            <div class="label">Open Source</div>
+          </div>
+          <div class="stat">
+            <div class="number">∞</div>
+            <div class="label">Free Forever</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="bottom-bar">
+      <div class="logo">VOLT</div>
+      <div class="url">github.com/cyborgpulsedev/Volt-Beta-260829</div>
+    </div>
+  </div>
+</body>
+</html>
