@@ -4,6 +4,16 @@ A fast, private, ad-free PDF reader with AI built in. Everything renders on your
 
 This repository is the **beta channel**: a snapshot of the app's source plus the installers you can download and run. Development happens elsewhere; what lands here is what's ready for you to try.
 
+## What "beta" means here
+
+Volt is being tested in the open, which means two honest caveats.
+
+**It is signed with a development certificate, not a commercial one.** That is why Windows SmartScreen warns you on first launch. The warning is real and you should take it seriously with software generally — this is simply a case where the publisher is known to you and the certificate hasn't been bought yet. The publisher name is checked on every automatic update, so an update can only come from the same source that installed it.
+
+**It has not been security-audited, and it edits your documents.** Keep the original of anything that matters until you've opened the saved copy and checked it. Volt never deletes or overwrites your source file on its own, but a beta is exactly the wrong place to find out you had only one copy.
+
+Everything runs on your machine. Nothing is sent anywhere unless you point the chat at a hosted model, and then only what you ask about goes to the endpoint you chose. There is no account, no telemetry, and no analytics — which also means the only way I learn something broke is if you tell me.
+
 ## Install
 
 1. Open the [latest release](https://github.com/cyborgpulsedev/Volt-Beta-260829/releases/latest) and download **`Volt-Setup-<version>.exe`**.
