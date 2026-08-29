@@ -1,0 +1,18 @@
+name: Idea or feedback
+description: Something missing, something awkward, or something you'd like Volt to do.
+labels: ["feedback"]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like?
+      description: Describe it in your own words — no need to propose how it should work.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: What are you trying to get done?
+      description: >-
+        The task behind the request. This is usually more useful than the
+        feature itself — there may be a better way to solve it.

@@ -28,6 +28,14 @@ const { tmpdir } = require("node:os");
    (scripts/gen-icons.cjs renders every app icon from it), so that one stays.
    Add a path here and it is excluded from every future sync automatically. */
 const BETA_EXCLUDE = [
+  /* Build recipe, not distribution. Published to the beta repo these would
+     run a full Windows CI job on every sync, fail noisily on release tags
+     because CSC_LINK / CSC_KEY_PASSWORD / GH_TOKEN do not exist there, and
+     advertise the signing pipeline's secret names to anyone reading. The
+     beta repo is a download channel; building happens in the private one. */
+  ".github/workflows/ci.yml",
+  ".github/workflows/release.yml",
+
   "assets/Volt Design Set.png",
   "assets/volt-icon-black.png",
   "assets/volt-icon-glow-1.png",

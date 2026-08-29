@@ -1,0 +1,37 @@
+name: Something broke
+description: Volt did the wrong thing, or stopped doing anything at all.
+labels: ["bug"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Volt version
+      description: "☰ → About. The in-app **☰ → Send feedback** fills this in for you."
+      placeholder: "1.0.6"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what happened, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: document
+    attributes:
+      label: The document
+      description: >-
+        Attach it if you can. If you can't, tell us what kind it is — scanned,
+        exported from a particular program, unusually large, password-protected.
+  - type: input
+    id: model
+    attributes:
+      label: Model (only for AI problems)
+      description: The model name, and whether document actions were switched on.
+      placeholder: "qwen3:4b, actions on"
+  - type: input
+    id: os
+    attributes:
+      label: Windows version
+      placeholder: "Windows 11 Pro 24H2"

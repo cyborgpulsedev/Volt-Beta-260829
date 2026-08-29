@@ -1,0 +1,9 @@
+# Blank issues stay ON deliberately: the app's ☰ → Send feedback opens a
+# prefilled issue URL, and GitHub drops the prefill when blank issues are
+# disabled. Do not set this to false without changing _sendFeedback in
+# pdf-viewer/js/app.js first.
+blank_issues_enabled: true
+contact_links:
+  - name: Question, or not sure it's a bug
+    url: https://github.com/cyborgpulsedev/Volt-Beta-260829/discussions
+    about: Ask in Discussions — no template, no pressure.
