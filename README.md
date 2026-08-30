@@ -57,6 +57,10 @@ Rough guide on a machine with 8 GB of VRAM: a 3B model answers in seconds and us
 - **Pages** — add, delete, reorder by drag, insert from another PDF, with undo
 - **Voice** — read aloud with local voices, and talk to the AI with your microphone
 
+## What to test
+
+[TESTING.md](TESTING.md) is a checklist you can work through — opening, navigating, markup, pages, exports, OCR, AI, signing — with the traps worth poking at called out. You don't have to do all of it; a real task with a real document beats a full pass over a sample file.
+
 ## Telling us what broke
 
 Open an [issue](https://github.com/cyborgpulsedev/Volt-Beta-260829/issues) — or use **☰ → Send feedback** in the app, which opens the same place with your version already filled in.
