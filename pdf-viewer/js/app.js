@@ -5399,10 +5399,20 @@
         try { await voltDesktop.nextExportDir(this._exportOnce); } catch (e) { /* ignore */ }
       }
       try {
-        if (kind === "pdf") {
-          const bytes = await Volt.Ann.toAnnotatedPdf();
-          Utils.download(new Blob([bytes], { type: "application/pdf" }), base + "-annotated.pdf");
-          this.toast("Annotated PDF exported", "ok");
+        if (kind === "pdf" || kind === "pdf-flat") {
+          /* Two honest options rather than one compromise. The default writes
+             real annotation objects: in Acrobat the highlight is something you
+             can click, recolour, reply to or delete, and other tools can read
+             the markup back out. Flattening paints the same marks into the
+             page — which is what you want when the file is going to a printer,
+             or to someone who must not be able to move the markup. */
+          const flat = kind === "pdf-flat";
+          const bytes = await Volt.Ann.toAnnotatedPdf({ flatten: flat });
+          Utils.download(new Blob([bytes], { type: "application/pdf" }),
+            base + (flat ? "-flattened.pdf" : "-annotated.pdf"));
+          this.toast(flat
+            ? "Flattened PDF exported — the markup is part of the page now"
+            : "Annotated PDF exported — highlights and notes stay editable in Acrobat", "ok");
         } else if (kind === "secure") {
           this._closeModal(el.exportModal);
           this._openModal(el.secureModal);
@@ -5431,7 +5441,10 @@
           // Info, /ID) and a classic xref — the smoke verifies the required
           // elements survive into the file
           this.toast("Preparing PDF/A-1b export…", "ok");
-          const bytes = await Volt.Ann.toAnnotatedPdf({ classic: true });
+          // PDF/A-1b forbids transparency and blend modes, and a highlight
+          // annotation's appearance uses both — so the archival export burns
+          // the markup into the page instead of writing annotation objects.
+          const bytes = await Volt.Ann.toAnnotatedPdf({ classic: true, flatten: true });
           const pdfa = await Volt.ISO.toPdfA1b(bytes, {
             title: (this.currentDocInfo?.name || "document").replace(/\.pdf$/i, ""),
             producer: "Volt" + (global.Volt.VERSION ? " " + global.Volt.VERSION : ""),

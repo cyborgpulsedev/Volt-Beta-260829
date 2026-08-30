@@ -4,47 +4,78 @@ Each release is a `## x.y.z` section. The version banner tooltip shows the
 sections newer than the installed bundle, so a pending update tells you what
 changed before you restart.
 
+## 1.0.14
+
+**Markup is now real PDF annotations, and flattening is its own export.**
+
+Highlights, underlines, strikethroughs, boxes and notes used to be painted
+into the page's content stream. That prints correctly and is impossible to
+undo: in Acrobat the highlight was part of the page rather than something you
+could click, recolour, reply to or delete, and no other tool could read the
+markup back out.
+
+- **Export > Annotated PDF writes real objects** — `/Highlight`, `/Underline`,
+  `/StrikeOut`, `/Square` and `/Text`, with `/QuadPoints`, colour, author,
+  timestamp and contents. Verified against a real export: five annotations,
+  one of each type, all present in the file.
+- **Export > Flatten for printing** keeps the old behaviour on purpose, for a
+  file going to a printer or to someone who must not be able to move the
+  markup. It writes zero annotation objects.
+- **Every markup annotation carries its own appearance stream.** Acrobat will
+  synthesise one, but pdf.js, Chrome's viewer, Preview and most phone readers
+  will not — a `/Highlight` without `/AP` is simply invisible to most of the
+  people it was written for. Confirmed by reopening the exported file in
+  Volt with its own markup layer empty: all four visible types render from
+  the file itself.
+- **Highlights use a Multiply blend**, so the text underneath stays legible
+  rather than being washed out by a flat overlay.
+- **The print flag is set** on every annotation. Without it a viewer may show
+  markup on screen and silently omit it from paper, which is not what anyone
+  means by highlighting something.
+- **Some marks stay flattened, by necessity.** A redaction must destroy what
+  is under it, which is content surgery rather than an overlay; signatures,
+  dates, filled form values and in-place text edits become the document once
+  applied. A rotated box keeps being burned in too, because `/Square` is
+  axis-aligned by definition and would silently lose its rotation.
+- **PDF/A-1b still flattens.** The standard forbids transparency and blend
+  modes, and a highlight's appearance uses both.
+- **Tests**: a smoke probe exports one of every type and checks the count, the
+  subtypes, that every markup annotation has an appearance, that the print
+  flag is set, and that flattening writes none. It also pins `/QuadPoints`
+  ORDER — upper-left, upper-right, LOWER-LEFT, lower-right, which is not a
+  loop around the shape. Getting that wrong renders a highlight as a bow-tie
+  or not at all, and no structural check would notice.
+
 ## 1.0.13
 
-**A two-column article is no longer exported as a two-column table.** Last
-gap in the Word layout work.
+**A two-column article is no longer exported as a two-column table.** Last gap
+in the Word layout work.
 
-The gap-based detector finds a table wherever text sits in aligned columns
-with a real gap between them — which is precisely the shape of a two-column
-page of prose. It claimed those pages before the column ordering added in
-1.0.12 could see them, so a two-column article came out as a table with a
-sentence in every cell.
-
-Prose and tabular data separate cleanly on cell length: table cells are a
-label, a number, a date; prose cells are lines of running text that fill their
-column. A candidate is rejected as prose only when it has exactly two columns,
-at least six rows, a median cell length of 25 characters or more in BOTH
-columns, and most cells carrying several spaces — so a long two-column table
-of short values is still a table, and one long description column beside a
-short value column is still a table. Tables drawn with ruling lines are never
-second-guessed; they have evidence of their own.
-
-Measured on a real two-column PDF: 60 paragraphs and 0 tables, where before it
-was 0 paragraphs and 1 table. Left column read out in full, then the right,
-with no line mixing the two.
-
-**Also verified rather than rebuilt:** table reconstruction from ruling lines
-already worked. A 5×7 inspection form with eight deliberately empty cells —
-the case gap detection cannot see at all — reconstructs as a 7×5 grid with
-every value in the right cell and the blanks preserved. That closes the last
-item on the layout list without new code.
-
-### Where the Word layout milestone stands
-
-Done: page geometry and margins from the source, exact per-line size and
-leading, page-break fidelity (a dense 60-page A4 report exported to 120 pages,
-now 61), column ordering, font and weight matching, prose-vs-table separation,
-ruling-line tables.
-
-Not done, and no longer obviously needed: absolutely positioned text frames.
-They were the plan for holding page count, and measuring showed page geometry
-and exact leading already achieve it at a fraction of the complexity. Worth
-revisiting only for a document where reading order and flow are not enough.
+- **Two-column prose is told apart from tabular data.** The gap-based detector
+  finds a table wherever text sits in aligned columns with a real gap between
+  them — precisely the shape of a two-column page of prose. It claimed those
+  pages before the column ordering added in 1.0.12 could see them, so an
+  article came out as a table with a sentence in every cell. A candidate is
+  now rejected as prose only when it has exactly two columns, at least six
+  rows, a median cell of 25 characters or more in BOTH columns, and most cells
+  carrying several spaces.
+- **Real tables are untouched.** A long two-column table of short values is
+  still a table, and one long description column beside a short value column
+  is still a table — that pair is what the guard must not swallow, and both
+  are pinned by tests. Tables drawn with ruling lines are never
+  second-guessed; they carry evidence of their own.
+- **Measured on a real two-column PDF**: 60 paragraphs and 0 tables, where
+  before it was 0 paragraphs and 1 table. Left column read out in full, then
+  the right, with no line mixing the two.
+- **Ruling-line tables verified rather than rebuilt.** A 5x7 inspection form
+  with eight deliberately empty cells — the case gap detection cannot see at
+  all — already reconstructed as a 7x5 grid with every value in the right cell
+  and the blanks preserved. Last item on the layout list, closed without new
+  code.
+- **Positioned text frames dropped from the plan.** They were the intended way
+  to hold page count, and measuring showed page geometry plus exact leading
+  already achieve it at a fraction of the complexity. Worth revisiting only
+  for a document where reading order and flow are not enough.
 
 ## 1.0.12
 

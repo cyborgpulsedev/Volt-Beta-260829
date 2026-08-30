@@ -3189,6 +3189,172 @@
         Volt.Secure.lock and Volt.Sign need; left off, the output matches the
         SOURCE document's own encoding, so a plain save or export comes back
         the size it went in instead of ~12% larger. */
+    /* ── real PDF annotation objects (ISO 32000) ─────────────────
+       Markup used to be painted into the page's content stream. That prints
+       correctly and is impossible to undo: in Acrobat the highlight is part of
+       the page rather than something you can click, reply to, recolour or
+       delete, and no other tool can read the markup back out. Written as real
+       objects, the same marks are what every PDF tool already understands.
+
+       Appearance streams are not optional in practice. Acrobat will synthesise
+       one for a markup annotation that lacks it, but pdf.js, Chrome's built-in
+       viewer, Preview and most phone readers will not — a /Highlight with no
+       /AP simply does not appear. So each annotation carries its own.
+
+       Not every mark can be an annotation. A redaction MUST destroy the text
+       underneath, which is content surgery rather than an overlay; signatures,
+       dates, filled form values and in-place text edits become the document
+       itself once applied. Those keep being burned in, and _realAnnotation
+       returns false for them so the caller flattens instead. */
+
+    /** /QuadPoints for a set of text quads. The spec's order is
+        upper-left, upper-right, LOWER-LEFT, lower-right — not a loop around
+        the shape, which is the classic way to end up with a highlight that
+        renders as a bow-tie or not at all. Ours are stored [tl, tr, br, bl]. */
+    _quadPoints(quads) {
+      const out = [];
+      for (const q of quads || []) {
+        out.push(q[0].x, q[0].y, q[1].x, q[1].y, q[3].x, q[3].y, q[2].x, q[2].y);
+      }
+      return out;
+    },
+
+    /** Bounding box of a set of quads, padded so a stroke sitting on the edge
+        is not clipped by the annotation's own /Rect. */
+    _quadsRect(quads, pad) {
+      const p2 = pad == null ? 1 : pad;
+      let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+      for (const q of quads || []) {
+        for (const pt of q) {
+          if (pt.x < x1) x1 = pt.x;
+          if (pt.x > x2) x2 = pt.x;
+          if (pt.y < y1) y1 = pt.y;
+          if (pt.y > y2) y2 = pt.y;
+        }
+      }
+      if (!Number.isFinite(x1)) return null;
+      return [x1 - p2, y1 - p2, x2 + p2, y2 + p2];
+    },
+
+    /** Wrap a content stream as the annotation's normal appearance. The BBox
+        is in page coordinates and the Matrix is identity, so the operators can
+        be written in the same space the quads are already stored in. */
+    _appearance(pdf, rect, ops, extG) {
+      const dict = {
+        Type: "XObject",
+        Subtype: "Form",
+        FormType: 1,
+        BBox: rect,
+        Matrix: [1, 0, 0, 1, 0, 0],
+        Resources: extG ? { ExtGState: { GS0: extG } } : {},
+      };
+      return pdf.context.register(pdf.context.flateStream(ops.join("\n"), dict));
+    },
+
+    /** An ExtGState that makes a highlight behave like a highlighter pen —
+        multiply blend, so the text underneath stays legible. */
+    _highlightGState(pdf, alpha) {
+      return pdf.context.register(pdf.context.obj({
+        Type: "ExtGState", BM: "Multiply", ca: alpha, CA: alpha,
+      }));
+    },
+
+    /** Write `ann` as a real annotation on `page`. Returns true when it did,
+        false when the mark has to be burned into the content instead. */
+    _realAnnotation(pdf, page, ann) {
+      const { PDFString } = global.PDFLib;
+      const col = this._hexToRgb(ann.color || "#ffd166");
+      const C = [col.r, col.g, col.b];
+      const d = new Date();
+      const p2 = (n) => String(n).padStart(2, "0");
+      const stamp = "D:" + d.getUTCFullYear() + p2(d.getUTCMonth() + 1) + p2(d.getUTCDate()) +
+        p2(d.getUTCHours()) + p2(d.getUTCMinutes()) + p2(d.getUTCSeconds()) + "Z";
+      const fmt = (n) => (Math.round(n * 1000) / 1000).toString();
+      const base = (rect) => ({
+        Type: "Annot",
+        Rect: rect,
+        C,
+        // 4 = Print. Without it a viewer may show the markup on screen and
+        // silently omit it from paper, which is not what anyone means by
+        // "I highlighted this".
+        F: 4,
+        M: PDFString.of(stamp),
+        T: PDFString.of("Volt"),
+        NM: PDFString.of(String(ann.id || "")),
+        Contents: PDFString.of(String(ann.note || ann.text || "")),
+      });
+      const put = (dict, apRef) => {
+        if (apRef) dict.AP = { N: apRef };
+        page.node.addAnnot(pdf.context.register(pdf.context.obj(dict)));
+        return true;
+      };
+
+      if ((ann.type === "highlight" || ann.type === "underline" || ann.type === "strike") &&
+          ann.quads && ann.quads.length) {
+        const rect = this._quadsRect(ann.quads, 1.5);
+        if (!rect) return false;
+        const ops = [];
+        if (ann.type === "highlight") {
+          ops.push("/GS0 gs", fmt(C[0]) + " " + fmt(C[1]) + " " + fmt(C[2]) + " rg");
+          for (const q of ann.quads) {
+            const x = Math.min(q[0].x, q[3].x), y = Math.min(q[3].y, q[2].y);
+            const w = Math.abs(q[1].x - q[0].x), h = Math.abs(q[0].y - q[3].y);
+            ops.push(fmt(x) + " " + fmt(y) + " " + fmt(w) + " " + fmt(h) + " re f");
+          }
+        } else {
+          ops.push(fmt(C[0]) + " " + fmt(C[1]) + " " + fmt(C[2]) + " RG",
+            (ann.type === "strike" ? "1.2" : "1.4") + " w");
+          for (const q of ann.quads) {
+            const y = ann.type === "strike"
+              ? (Math.min(q[3].y, q[2].y) + Math.max(q[0].y, q[1].y)) / 2
+              : Math.min(q[3].y, q[2].y) + 0.6;
+            ops.push(fmt(q[0].x) + " " + fmt(y) + " m " + fmt(q[1].x) + " " + fmt(y) + " l S");
+          }
+        }
+        const gs = ann.type === "highlight" ? this._highlightGState(pdf, 0.4) : null;
+        const dict = base(rect);
+        dict.Subtype = ann.type === "highlight" ? "Highlight"
+          : ann.type === "underline" ? "Underline" : "StrikeOut";
+        dict.QuadPoints = this._quadPoints(ann.quads);
+        if (ann.type === "highlight") dict.CA = 0.4;
+        return put(dict, this._appearance(pdf, rect, ops, gs));
+      }
+
+      // an area highlight or a drawn box — both are /Square. A ROTATED one
+      // cannot be: /Square is axis-aligned by definition, so it keeps being
+      // burned in rather than silently losing its rotation.
+      if ((ann.type === "rect" || ann.type === "highlight") && ann.rect && !ann.rotation) {
+        const r = ann.rect;
+        const pad = 1.5;
+        const rect = [r.x - pad, r.y - pad, r.x + r.w + pad, r.y + r.h + pad];
+        const filled = ann.type === "highlight";
+        const ops = filled
+          ? ["/GS0 gs", fmt(C[0]) + " " + fmt(C[1]) + " " + fmt(C[2]) + " rg",
+            fmt(r.x) + " " + fmt(r.y) + " " + fmt(r.w) + " " + fmt(r.h) + " re f"]
+          : [fmt(C[0]) + " " + fmt(C[1]) + " " + fmt(C[2]) + " RG", "1.5 w",
+            fmt(r.x) + " " + fmt(r.y) + " " + fmt(r.w) + " " + fmt(r.h) + " re S"];
+        const dict = base(rect);
+        dict.Subtype = "Square";
+        dict.BS = { W: filled ? 0 : 1.5, S: "S" };
+        if (filled) { dict.IC = C; dict.CA = 0.4; }
+        return put(dict, this._appearance(pdf, rect, ops, filled ? this._highlightGState(pdf, 0.4) : null));
+      }
+
+      if (ann.type === "note") {
+        const x = ann.x != null ? ann.x : (ann.rect && ann.rect.x) || 0;
+        const y = ann.y != null ? ann.y : (ann.rect && ann.rect.y) || 0;
+        // 20x20 is the conventional note-icon box; the viewer draws the icon
+        const rect = [x, y - 20, x + 20, y];
+        const dict = base(rect);
+        dict.Subtype = "Text";
+        dict.Name = "Comment";
+        dict.Open = false;
+        return put(dict, null);
+      }
+
+      return false;   // signatures, dates, form values, text edits, redactions
+    },
+
     async toAnnotatedPdf(opts = {}) {
       const app = this._app();
       if (!app.currentDoc || !app.currentDocBytes) throw new Error("No document loaded");
@@ -3199,9 +3365,21 @@
       const byPage = {};
       for (const ann of this.list) (byPage[ann.page] = byPage[ann.page] || []).push(ann);
 
+      /* opts.flatten paints every mark into the page content — the old
+         behaviour, kept as the explicit "Flatten for printing" export and
+         used by anything that must produce a page whose appearance cannot be
+         edited away. The default now writes real annotation objects for the
+         markup types that have one, and only falls back to burning for the
+         marks that genuinely are content: redactions (which must destroy what
+         is under them), signatures, dates, filled form values and in-place
+         text edits. */
+      const flatten = !!opts.flatten;
       for (const pageNum of Object.keys(byPage)) {
         const page = pdf.getPage(parseInt(pageNum, 10) - 1);
-        for (const ann of byPage[pageNum]) await this._burnAnnotation(page, ann, helv, pdf);
+        for (const ann of byPage[pageNum]) {
+          if (!flatten && this._realAnnotation(pdf, page, ann)) continue;
+          await this._burnAnnotation(page, ann, helv, pdf);
+        }
         const redacts = byPage[pageNum].filter((a) => a.type === "redact");
         if (redacts.length) await this._redactPageContent(pdf, page, redacts);
       }

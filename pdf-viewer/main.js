@@ -6630,6 +6630,91 @@ function runSmokeTest(w) {
             // stream, /OutputIntents + /GTS_PDFA1 + ICC profile, trailer /ID,
             // classic xref, no /Encrypt) AND the content still opens with
             // pdf.js and keeps its text.
+            /* ── real PDF annotation objects (ISO 32000) ──
+               Markup used to be painted into the page content: correct on
+               paper, impossible to undo, and unreadable to every other tool.
+               The default export now writes real /Highlight, /Underline,
+               /StrikeOut, /Square and /Text objects, and "Flatten for
+               printing" keeps the old behaviour on purpose.
+
+               Two things this probe exists to catch. First, /QuadPoints order
+               is upper-left, upper-right, LOWER-LEFT, lower-right — not a loop
+               around the shape — and getting it wrong renders a highlight as a
+               bow-tie or not at all, which no structural check would notice.
+               Second, an appearance stream is not optional: Acrobat will
+               synthesise one, but pdf.js, Chrome and Preview will not, so a
+               markup annotation without /AP is simply invisible to most of the
+               people it was written for. */
+            const annObj = { error: null };
+            try {
+              const A5 = window.Volt.App;
+              const An = window.Volt.Ann;
+              const sleep5 = (ms) => new Promise((r) => setTimeout(r, ms));
+              const saved = An.list.slice();
+              const quad = (y) => [[{ x: 60, y: y + 9 }, { x: 400, y: y + 9 },
+                                    { x: 400, y }, { x: 60, y }]];
+              An.list.length = 0;
+              An.list.push(
+                { id: "p-h", type: "highlight", page: 1, quads: quad(700), text: "h", color: "#ffd166" },
+                { id: "p-u", type: "underline", page: 1, quads: quad(670), text: "u", color: "#4cc9f0" },
+                { id: "p-s", type: "strike", page: 1, quads: quad(640), text: "s", color: "#f87171" },
+                { id: "p-r", type: "rect", page: 1, rect: { x: 60, y: 520, w: 200, h: 60 }, color: "#a78bfa" },
+                { id: "p-n", type: "note", page: 1, x: 320, y: 560, note: "probe note", color: "#fbbf24" }
+              );
+              const bytes = await An.toAnnotatedPdf();
+              const flatBytes = await An.toAnnotatedPdf({ flatten: true });
+              An.list.length = 0;
+              for (const a of saved) An.list.push(a);
+
+              const L5 = window.PDFLib;
+              const doc5 = await L5.PDFDocument.load(bytes);
+              const annots = doc5.getPage(0).node.Annots();
+              annObj.count = annots ? annots.size() : 0;
+              const subs = [], missingAp = [], quadCounts = {};
+              for (let i = 0; i < annObj.count; i++) {
+                const a = annots.lookup(i);
+                const sub = String(a.get(L5.PDFName.of("Subtype"))).replace("/", "");
+                subs.push(sub);
+                if (!a.get(L5.PDFName.of("AP")) && sub !== "Text") missingAp.push(sub);
+                const qp = a.get(L5.PDFName.of("QuadPoints"));
+                if (qp) quadCounts[sub] = qp.size();
+                // /F bit 3 (value 4) is Print: without it a viewer may show
+                // the markup on screen and omit it from paper
+                if (Number(String(a.get(L5.PDFName.of("F")))) !== 4) annObj.badPrintFlag = sub;
+              }
+              annObj.subtypes = subs.sort();
+              annObj.hasAllFive = ["Highlight", "Square", "StrikeOut", "Text", "Underline"]
+                .every((s) => subs.indexOf(s) !== -1);
+              annObj.everyMarkupHasAppearance = missingAp.length === 0;
+              annObj.quadPointsPerQuad = quadCounts.Highlight === 8;
+
+              // QuadPoints order: UL, UR, LL, LR. y1 and y2 are the TOP edge,
+              // y3 and y4 the bottom - a loop order would interleave them.
+              const hl = (() => {
+                for (let i = 0; i < annObj.count; i++) {
+                  const a = annots.lookup(i);
+                  if (String(a.get(L5.PDFName.of("Subtype"))) === "/Highlight") return a;
+                }
+                return null;
+              })();
+              if (hl) {
+                const qp = hl.get(L5.PDFName.of("QuadPoints"));
+                const n = (i) => Number(String(qp.get(i)));
+                annObj.quadOrderIsSpec = n(1) === n(3) && n(5) === n(7) && n(1) > n(5);
+              }
+
+              const flatDoc = await L5.PDFDocument.load(flatBytes);
+              const flatAnnots = flatDoc.getPage(0).node.Annots();
+              annObj.flattenWritesNoAnnots = !flatAnnots || flatAnnots.size() === 0;
+              annObj.flattenStillProducesAFile = flatBytes.byteLength > 900;
+
+              annObj.allOk = annObj.count === 5 && annObj.hasAllFive === true &&
+                annObj.everyMarkupHasAppearance === true && annObj.quadPointsPerQuad === true &&
+                annObj.quadOrderIsSpec === true && annObj.flattenWritesNoAnnots === true &&
+                annObj.flattenStillProducesAFile === true && !annObj.badPrintFlag;
+              await sleep5(50);
+            } catch (e) { annObj.error = String((e && e.message) || e); annObj.allOk = false; }
+
             const isoProbe = { error: null };
             try {
               const app2 = window.Volt.App;
@@ -7179,7 +7264,7 @@ function runSmokeTest(w) {
               bmProbe.outlineJump === true && bmProbe.outlineSync === true &&
               bmProbe.outlineGone === true && !bmProbe.error;
             return {
-              ok: hiddenOk && visibleOk && vendorBootErrors.allOk && modal.allOk && modalCycle.allOk && helpC.allOk && setup.allOk && watch.allOk && fpStage.allOk && rs.allOk && rurl.allOk && tlMove.allOk && lineSel.allOk && notesDel.allOk && voice.allOk && boot.allOk && dup.allOk && nudge.allOk && rotArea.allOk && sizeBadge.allOk && rectTool.allOk && pageMgr.allOk && swCache.allOk && htmlCache.allOk && verBanner.allOk && aboutModal.allOk && ocr.allOk && office.allOk && isoProbe.allOk && signProbe.allOk && spreadProbe.allOk && bmProbe.allOk && feedbackProbe.allOk && longDoc.allOk,
+              ok: hiddenOk && visibleOk && vendorBootErrors.allOk && modal.allOk && modalCycle.allOk && helpC.allOk && setup.allOk && watch.allOk && fpStage.allOk && rs.allOk && rurl.allOk && tlMove.allOk && lineSel.allOk && notesDel.allOk && voice.allOk && boot.allOk && dup.allOk && nudge.allOk && rotArea.allOk && sizeBadge.allOk && rectTool.allOk && pageMgr.allOk && swCache.allOk && htmlCache.allOk && verBanner.allOk && aboutModal.allOk && ocr.allOk && office.allOk && isoProbe.allOk && signProbe.allOk && spreadProbe.allOk && bmProbe.allOk && feedbackProbe.allOk && longDoc.allOk && annObj.allOk,
               voice,
               bootstrap: boot,
               ocr,
@@ -7208,6 +7293,7 @@ function runSmokeTest(w) {
               indexHtmlCache: htmlCache,
               versionBanner: verBanner,
               aboutModal,
+              annObj,
               isoProbe,
               signProbe,
               renderedPages: wraps,
