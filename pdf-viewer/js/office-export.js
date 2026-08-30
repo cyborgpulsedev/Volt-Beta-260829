@@ -245,7 +245,24 @@
     used.add(cand);
     return cand;
   }
-  function isNumericCell(t) { return /^-?\d+(\.\d+)?$/.test(t); }
+  /* A cell that LOOKS like a figure should arrive in Excel as a figure, or the
+     column will not sum. Thousands separators are the common case and used to
+     fall through to text, so one table exported a mix: "987" became a number
+     while "1,204" beside it stayed a string.
+
+     Deliberately conservative. Only a bare number, or one whose commas group
+     digits in exact threes, converts — "1,5" is left alone because it is a
+     decimal comma in half the world, and currency, percentages and accounting
+     parentheses keep their text because dropping the symbol would change what
+     the cell means. Returns the unformatted value, or null to keep it text. */
+  const NUMERIC_CELL = /^[+-]?(\d+|\d{1,3}(,\d{3})+)(\.\d+)?$/;
+  function numericCellValue(t) {
+    const v = String(t).trim();
+    if (!NUMERIC_CELL.test(v)) return null;
+    const plain = v.split(",").join("").replace(/^\+/, "");
+    return Number.isFinite(Number(plain)) ? plain : null;
+  }
+  function isNumericCell(t) { return numericCellValue(t) !== null; }
 
   OE.xlsx = function (opts) {
     const sheets = (opts && opts.sheets) || [];
@@ -256,7 +273,10 @@
         const cells = (row || []).map((c, ci) => {
           const ref = colName(ci + 1) + (ri + 1);
           const t = String(c == null ? "" : c);
-          if (isNumericCell(t)) return '<c r="' + ref + '"><v>' + t + "</v></c>";
+          const num = numericCellValue(t);
+          // s="1" is the #,##0.## format below, so a grouped figure still READS
+          // the way it did in the PDF while behaving as a number
+          if (num !== null) return '<c r="' + ref + '"' + (t.indexOf(",") >= 0 ? ' s="1"' : "") + "><v>" + num + "</v></c>";
           return '<c r="' + ref + '" t="inlineStr"><is><t xml:space="preserve">' + OE.xml(t) + "</t></is></c>";
         });
         return '<row r="' + (ri + 1) + '">' + cells.join("") + "</row>";
@@ -269,6 +289,7 @@
       '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
       '<Default Extension="xml" ContentType="application/xml"/>' +
       '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+      '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
       named.map((s, i) => '<Override PartName="/xl/worksheets/sheet' + (i + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join("") +
       "</Types>";
     const workbook = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
@@ -278,12 +299,28 @@
       named.map((s, i) =>
         '<Relationship Id="rId' + (i + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' + (i + 1) + '.xml"/>'
       ).join("") +
+      '<Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' +
       "</Relationships>";
+    /* Minimal styles part. cellXfs[0] is General (every text cell); cellXfs[1]
+       applies numFmt 164 (#,##0.##) so a figure that carried thousands
+       separators in the PDF still displays with them. */
+    const styles = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+      '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+      '<numFmts count="1"><numFmt numFmtId="164" formatCode="#,##0.##"/></numFmts>' +
+      '<fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>' +
+      '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>' +
+      '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>' +
+      '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
+      '<cellXfs count="2">' +
+      '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
+      '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>' +
+      "</cellXfs></styleSheet>";
     const files = [
       { name: "[Content_Types].xml", bytes: OE.utf8(types) },
       { name: "_rels/.rels", bytes: OE.utf8(RELS_ROOT + '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>') },
       { name: "xl/workbook.xml", bytes: OE.utf8(workbook) },
       { name: "xl/_rels/workbook.xml.rels", bytes: OE.utf8(wbRels) },
+      { name: "xl/styles.xml", bytes: OE.utf8(styles) },
     ];
     sheetXmls.forEach((x, i) => files.push({ name: "xl/worksheets/sheet" + (i + 1) + ".xml", bytes: OE.utf8(x) }));
     return OE.zip(files);

@@ -3095,7 +3095,33 @@ input[type="range"] { accent-color: var(--accent); }
 }
 
 /* Send-feedback modal: type select, message box, optional contact */
-.feedback-select, .feedback-text {
+/* Where an export lands, shown above the export list so it is visible BEFORE
+   you pick a format, with a per-export override next to it. */
+.export-dest {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: -4px 0 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.export-dest-label { color: var(--text-faint); }
+.export-dest-path {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.feedback-summary {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 10px;
+}
+
+.feedback-select, .feedback-summary, .feedback-text {
   width: 100%;
   background: var(--bg-3);
   border: 1px solid var(--border);

@@ -1,18 +1,19 @@
-## Volt 1.0.6
+## Volt 1.0.7
 
 Volt is a fast, private, ad-free PDF reader with AI built in — everything renders locally, and you bring your own LLM. No account, no telemetry, no upsells.
 
-**This release makes saved files small again**, gives every dialog a working Escape key, and lets you turn the AI's document actions off. It also delivers the brand icon and the corrected download links that the 1.0.5 notes described but that release was cut too early to include.
+**This release fixes reading long documents.** A full beta pass over 1.0.6 found that jumping more than four pages left the page blank. That is fixed, along with three other defects, and you can now choose where your files are saved.
 
-**Fixed in 1.0.6**
-- **Saved files keep their size.** Reordering two pages of a 4.7 MB document produced a 24.4 MB file — every shared font and image was copied again for each page. The same save is now 4.77 MB and takes 0.67 s instead of 2.3 s. A plain save with annotations no longer grows the file either: only Secure, Sign and PDF/A rewrite the document in the older form those features actually need.
-- **Escape closes the dialog you are looking at.** Seven dialogs — Secure, Sign, Setup, Feedback, Signature, Form field and the `file://` notice — had no Escape key, no focus trap and no dimmed background, and a dialog opened while a markup tool was active could not be closed from the keyboard at all. Escape now always closes the top layer first, and clicking outside works the same way.
-- **You can turn the AI's document actions off.** A switch in Settings and one in the chat footer. Both explain plainly that a local model may ignore an action, or claim to have taken one it never took.
-- **Models that cannot take actions now say so.** Ollama reports per-model capabilities, and the model picker marks the ones without action support instead of offering them silently — `gemma3:1b` was answering "the phrase is highlighted on page 1" having highlighted nothing.
-- **The AI no longer prints its own plumbing.** Some models write a tool call out as text instead of making it; the answer inside is unwrapped and shown, and stray schema dumps are dropped. JSON inside ordinary prose is left alone.
-- **Volt appears in Programs and Features with its install location.** The uninstall entry was missing the path, so inventory and cleanup tools saw an app installed nowhere.
-- **The brand icon ships.** The V-and-bolt icon now appears on the taskbar, Start menu, desktop and PDF files. 1.0.5 was cut two commits before it landed.
-- **Download links reach a page you can open.** The README and landing page pointed at a repository beta testers cannot see.
+**Fixed in 1.0.7**
+- **Pages appear again when you jump.** In any document longer than about six pages, clicking a thumbnail five or more pages away — or pressing End — updated the page number and showed nothing at all. Scrolling and zooming would not bring it back; you had to navigate back to where you started. Every way of moving around a document now lands on a page you can actually see.
+- **Spreadsheet exports produce numbers you can add up.** Figures with thousands separators came out as text — so `1,204` could not be summed while `987` in the same column could. They now export as real numbers and still display with their separators. Currency, percentages and decimal commas are deliberately left as text, because converting them would change what the cell means.
+- **Uninstalling no longer leaves PDFs pointing at a program that is gone.** The per-user file association survived an uninstall. It is cleared now — unless you have since chosen another reader, in which case yours is left alone.
+- **Feedback reports arrive with a readable title.** The title was the first line of whatever you typed, cut off at 80 characters. The feedback dialog now asks for a one-line summary.
+
+**New: choose where your files go**
+- **⚙ Settings → Files** sets the folder for exports and saved files.
+- The **export dialog** shows where the file is about to land and lets you send just that one somewhere else.
+- Worth checking: Windows often redirects Downloads into OneDrive, and if yours is redirected then every export has been syncing to the cloud. Point it at a local folder if you would rather it did not.
 
 **Highlights**
 - Fully local rendering — vendored pdf.js, works offline, even from `file://`
@@ -25,7 +26,7 @@ Volt is a fast, private, ad-free PDF reader with AI built in — everything rend
 - Read aloud with local voices, and talk to the AI with your microphone
 
 **Install**
-- **New installs:** download `Volt-Setup-1.0.6.exe` and run it — per-user install, no admin needed, desktop and Start-menu shortcuts. Windows SmartScreen may warn on first launch: click "More info" → "Run anyway".
+- **New installs:** download `Volt-Setup-1.0.7.exe` and run it — per-user install, no admin needed, desktop and Start-menu shortcuts. Windows SmartScreen may warn on first launch: click "More info" → "Run anyway".
 - **Existing installs:** the built-in updater picks this up automatically.
 
 **Requirements**

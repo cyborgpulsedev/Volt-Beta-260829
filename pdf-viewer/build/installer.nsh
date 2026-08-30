@@ -13,4 +13,13 @@
 
 !macro customUnInstall
   DeleteRegValue SHELL_CONTEXT "${UNINSTALL_REGISTRY_KEY}" "InstallLocation"
+
+  ; electron-builder deletes its own "Volt PDF" ProgID key on uninstall but
+  ; leaves Software\Classes\.pdf still NAMING it, so the per-user file
+  ; association is left pointing at a program that no longer exists. Clear
+  ; that value — but only while it is still ours: if the user has since
+  ; chosen another reader, theirs is what is written there.
+  ReadRegStr $0 SHELL_CONTEXT "Software\Classes\.pdf" ""
+  StrCmp $0 "Volt PDF" 0 +2
+  DeleteRegValue SHELL_CONTEXT "Software\Classes\.pdf" ""
 !macroend

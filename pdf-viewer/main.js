@@ -391,10 +391,32 @@ function allowMicPermission() {
 // an unopenable GUID .tmp instead of "MyDoc.docx". Set the path ourselves from
 // the download attribute (item.getFilename()), uniquifying rather than
 // clobbering, and tell the renderer where it landed so it can toast the path.
+/* Where exports land. `exportDir` is the user's chosen default (null = the OS
+   Downloads folder, which is what it has always been); `nextExportDir` is a
+   one-shot override set from the export dialog, so "just this once, put it
+   there" does not disturb the default. Downloads is frequently redirected into
+   OneDrive or another synced folder, which quietly pushed every export to the
+   cloud in an app whose whole promise is that nothing leaves the machine —
+   being able to point exports somewhere else is the fix for that. */
+let exportDir = null;
+let nextExportDir = null;
+
+// A folder that has since been deleted, renamed or unmounted must not swallow
+// the export — fall back to Downloads rather than failing the download
+function isDir(p) {
+  try { return !!p && statSync(p).isDirectory(); } catch (e) { return false; }
+}
+
+function resolveExportDir() {
+  const pick = nextExportDir || exportDir;
+  nextExportDir = null;
+  return isDir(pick) ? pick : app.getPath("downloads");
+}
+
 function autoSaveDownloads() {
   session.defaultSession.on("will-download", (_e, item) => {
     try {
-      const dir = app.getPath("downloads");
+      const dir = resolveExportDir();
       const name = item.getFilename() || "download";
       const dot = name.lastIndexOf(".");
       const stem = dot > 0 ? name.slice(0, dot) : name;
@@ -6726,6 +6748,145 @@ function runSmokeTest(w) {
             // scroll to page boundaries (a wheel-style scroll rests on the
             // nearest page top). Continuous restores the free column. Modes
             // persist under volt:view-mode; the probe restores the prior mode.
+            /* ── LONG DOCUMENT: jumping, and editing pages, far from where
+               you are ────────────────────────────────────────────────
+               Every other probe in this file runs against a 3-page sample, and
+               that is exactly why the viewer could ship unable to display any
+               page more than four away from the current one: virtualisation
+               disposes the pages in between, and placement measured each wrap
+               from the previous page NUMBER, which by then was not in the DOM.
+               The rendered block collapsed to the top of the container while
+               the scroller sat tens of thousands of pixels down, so the pane
+               went blank and no amount of scrolling brought it back.
+
+               A 3-page document can never reach that state. This probe builds a
+               real 60-page one and jumps by a spread of increments — 1, 2, 4,
+               5, 7, 12, 30, and both ends — asserting each time that a page is
+               actually PAINTED in the viewport, not merely that the readout
+               changed. It then reorders and deletes pages deep in the document
+               to check the plan survives edits far from page 1. */
+            const longDoc = { error: null };
+            try {
+              const A = window.Volt.App;
+              const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+              const PAGES = 60;
+              const lp = await window.PDFLib.PDFDocument.create();
+              const lf = await lp.embedFont(window.PDFLib.StandardFonts.Helvetica);
+              for (let i = 1; i <= PAGES; i++) {
+                const pg = lp.addPage([612, 792]);
+                pg.drawText("LONGDOC PAGE " + i, { x: 60, y: 700, size: 22, font: lf });
+                for (let l = 0; l < 12; l++) {
+                  pg.drawText("Line " + (l + 1) + " of page " + i + " - filler text for the layer.", { x: 60, y: 650 - l * 20, size: 11, font: lf });
+                }
+              }
+              const lBytes = await lp.save();
+              longDoc.built = lBytes.byteLength > 5000;
+              await A.openBuffer(lBytes.slice(0), "longdoc.pdf", lBytes.byteLength);
+              await sleep(900);
+              longDoc.opened = !!A.currentDoc && A.currentDoc.numPages === PAGES;
+
+              // a page counts as visible only if a real canvas for it overlaps
+              // the scroller viewport — the readout alone proved nothing
+              const paintedPages = () => {
+                const sc = document.getElementById("scroller");
+                const sr = sc.getBoundingClientRect();
+                const out = [];
+                for (const w of document.querySelectorAll(".page-wrap")) {
+                  const c = w.querySelector("canvas");
+                  if (!c || !c.width) continue;
+                  const r = w.getBoundingClientRect();
+                  if (r.bottom > sr.top && r.top < sr.bottom) out.push(Number(w.dataset.page));
+                }
+                return out;
+              };
+              // rendering is async, so the question is whether the page paints
+              // AT ALL, not whether it paints inside one fixed delay — poll
+              const jumpTo = async (n) => {
+                A.goToPage(n, false);
+                let painted = [];
+                for (let i = 0; i < 14; i++) {
+                  await sleep(250);
+                  painted = paintedPages();
+                  if (painted.some((x) => Math.abs(x - n) <= 1)) break;
+                }
+                return { target: n, painted, ok: painted.some((x) => Math.abs(x - n) <= 1) };
+              };
+              // increments chosen to straddle the dispose window (±2 pages
+              // around the visible range), which is where the bug lived
+              longDoc.jumps = [];
+              let at = 1;
+              await jumpTo(1);
+              for (const step of [1, 2, 4, 5, 7, 12, 30]) {
+                at = Math.min(PAGES, at + step);
+                longDoc.jumps.push({ step, ...(await jumpTo(at)) });
+              }
+              longDoc.toLast = await jumpTo(PAGES);
+              longDoc.toFirst = await jumpTo(1);
+              longDoc.backwardFar = await jumpTo(PAGES - 3);
+              longDoc.jumps.push({ step: -(PAGES - 4), ...(await jumpTo(3)) });
+              longDoc.allJumpsPainted = longDoc.jumps.every((j) => j.ok) &&
+                longDoc.toLast.ok === true && longDoc.toFirst.ok === true && longDoc.backwardFar.ok === true;
+
+              // page edits deep in the document, in several orders
+              A.openPagesManager();
+              await sleep(500);
+              const planPages = () => (A._pagePlan || []).map((x) => x.oldPage);
+              longDoc.planStart = planPages().length;
+              // the cards are .pages-plan-item; the grid also holds its own
+              // furniture, so indexing grid.children picked non-cards. Re-query
+              // each time too, because the grid is rebuilt after every edit.
+              const cards = () => document.getElementById("pages-plan-grid").querySelectorAll(".pages-plan-item");
+              /* Clicking a card TOGGLES it, so one that the previous edit left
+                 selected would be switched OFF by a bare click and the next
+                 button would then act on nothing. Select by index, then confirm
+                 the selection really is that single card. */
+              // A click ADDS to the selection and the previous edit leaves its
+              // page selected, so a bare click here left two or three pages
+              // selected and the next button correctly acted on all of them —
+              // the probe's own bug, not the manager's. Clear by toggling every
+              // selected card off (a real UI path), then select the one wanted.
+              const clearSel = () => {
+                const sel = A._pageSel;
+                if (!sel || !sel.size) return;
+                for (const i of [...sel]) { const c = cards()[i]; if (c) c.click(); }
+              };
+              const pick = (i) => {
+                clearSel();
+                const c = cards()[i];
+                if (!c) return null;
+                c.click();
+                return planPages()[i];
+              };
+              longDoc.cardCount = cards().length;
+              // assert against the page the plan ACTUALLY holds at that index,
+              // never an assumed number: each edit moves them, which is the
+              // whole point of running these in sequence
+              const moved = pick(44);
+              document.getElementById("btn-pages-up").click(); await sleep(300);
+              longDoc.deepMoveUp = planPages()[43] === moved;
+              const hoisted = pick(44);
+              longDoc.singleSelection = !!A._pageSel && A._pageSel.size === 1;
+              document.getElementById("btn-pages-first").click(); await sleep(400);
+              longDoc.deepMoveFirst = planPages()[0] === hoisted;
+              pick(50);
+              const delBtn = document.getElementById("btn-pages-del");
+              delBtn.click(); await sleep(250);   // arm
+              delBtn.click(); await sleep(450);   // confirm
+              longDoc.deepDelete = planPages().length === longDoc.planStart - 1;
+              for (let i = 0; i < 4; i++) { document.getElementById("btn-pages-undo").click(); await sleep(300); }
+              const restored = planPages();
+              longDoc.editsUndone = restored.length === longDoc.planStart &&
+                restored.every((v, i) => v === i + 1);
+              document.getElementById("pages-cancel").click(); await sleep(300);
+
+              longDoc.allOk = longDoc.built === true && longDoc.opened === true &&
+                longDoc.allJumpsPainted === true && longDoc.deepMoveUp === true &&
+                longDoc.deepMoveFirst === true && longDoc.deepDelete === true &&
+                longDoc.singleSelection === true && longDoc.editsUndone === true;
+              window.Volt.App.openSample();
+              await sleep(600);
+            } catch (e) { longDoc.error = String((e && e.message) || e); longDoc.allOk = false; }
+
             const spreadProbe = { error: null };
             try {
               const app4 = window.Volt.App;
@@ -6991,10 +7152,11 @@ function runSmokeTest(w) {
               bmProbe.outlineJump === true && bmProbe.outlineSync === true &&
               bmProbe.outlineGone === true && !bmProbe.error;
             return {
-              ok: hiddenOk && visibleOk && vendorBootErrors.allOk && modal.allOk && modalCycle.allOk && helpC.allOk && setup.allOk && watch.allOk && fpStage.allOk && rs.allOk && rurl.allOk && tlMove.allOk && lineSel.allOk && notesDel.allOk && voice.allOk && boot.allOk && dup.allOk && nudge.allOk && rotArea.allOk && sizeBadge.allOk && rectTool.allOk && pageMgr.allOk && swCache.allOk && htmlCache.allOk && verBanner.allOk && aboutModal.allOk && ocr.allOk && office.allOk && isoProbe.allOk && signProbe.allOk && spreadProbe.allOk && bmProbe.allOk && feedbackProbe.allOk,
+              ok: hiddenOk && visibleOk && vendorBootErrors.allOk && modal.allOk && modalCycle.allOk && helpC.allOk && setup.allOk && watch.allOk && fpStage.allOk && rs.allOk && rurl.allOk && tlMove.allOk && lineSel.allOk && notesDel.allOk && voice.allOk && boot.allOk && dup.allOk && nudge.allOk && rotArea.allOk && sizeBadge.allOk && rectTool.allOk && pageMgr.allOk && swCache.allOk && htmlCache.allOk && verBanner.allOk && aboutModal.allOk && ocr.allOk && office.allOk && isoProbe.allOk && signProbe.allOk && spreadProbe.allOk && bmProbe.allOk && feedbackProbe.allOk && longDoc.allOk,
               voice,
               bootstrap: boot,
               ocr,
+              longDoc,
               spreadProbe,
               bmProbe,
               feedbackProbe,
@@ -7428,6 +7590,28 @@ if (!gotLock) {
       // volt:pick-pfx — the e-sign flow's certificate picker (Export ▸
       // Digitally sign PDF…). Same native dialog, scoped to PKCS#12 files.
       // Returns null when cancelled.
+      // Export folder: read the effective one, set the default, pick one with a
+      // native dialog, or set a one-shot override for the next export only.
+      ipcMain.handle("volt:export-dir", async () => ({
+        dir: exportDir, effective: exportDir || app.getPath("downloads"), downloads: app.getPath("downloads"),
+      }));
+      ipcMain.handle("volt:set-export-dir", async (_event, dir) => {
+        exportDir = isDir(dir) ? dir : null;
+        return { dir: exportDir, effective: exportDir || app.getPath("downloads") };
+      });
+      ipcMain.handle("volt:next-export-dir", async (_event, dir) => {
+        nextExportDir = isDir(dir) ? dir : null;
+        return !!nextExportDir;
+      });
+      ipcMain.handle("volt:pick-export-dir", async () => {
+        const r = await dialog.showOpenDialog(win, {
+          title: "Choose where exports and saved files go",
+          defaultPath: exportDir || app.getPath("downloads"),
+          properties: ["openDirectory", "createDirectory"],
+        });
+        return r.canceled || !r.filePaths.length ? null : r.filePaths[0];
+      });
+
       ipcMain.handle("volt:pick-pfx", async () => {
         if (!win || win.isDestroyed()) return null;
         const r = await dialog.showOpenDialog(win, {

@@ -61,6 +61,10 @@ Rough guide on a machine with 8 GB of VRAM: a 3B model answers in seconds and us
 
 [TESTING.md](TESTING.md) is a checklist you can work through — opening, navigating, markup, pages, exports, OCR, AI, signing — with the traps worth poking at called out. You don't have to do all of it; a real task with a real document beats a full pass over a sample file.
 
+## Where your files go
+
+Exports and saved files land in your Downloads folder by default. **Windows often redirects Downloads into OneDrive**, and if yours is redirected then everything you export syncs to the cloud — which is not what an app like this should do quietly. Check ⚙ Settings → *Files* to see where they are actually going, and point it at a local folder if you would rather they stayed on the machine. The export dialog also shows the destination and lets you send one export somewhere else without changing the default.
+
 ## Telling us what broke
 
 Open an [issue](https://github.com/cyborgpulsedev/Volt-Beta-260829/issues) — or use **☰ → Send feedback** in the app, which opens the same place with your version already filled in.

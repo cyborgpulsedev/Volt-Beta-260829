@@ -95,6 +95,35 @@ t("xlsx: inline string cell", sheetXml.includes('t="inlineStr"') && sheetXml.inc
 t("xlsx: numeric cell", sheetXml.includes("<v>3</v>") && sheetXml.includes("<v>7.5</v>"));
 t("xlsx: workbook references the sheet", str(xz.find((e) => e.name === "xl/workbook.xml").data).includes('name="Table 1"'));
 
+/* Figures must arrive in Excel AS figures, or the column will not sum. The
+   beta test found one exported table where "987" became a number and "1,204"
+   beside it stayed a string, because the numeric test only matched bare
+   digits. Conversion is deliberately narrow: commas must group in exact
+   threes, so a European decimal comma ("1,5"), currency and percentages all
+   stay text rather than being silently reinterpreted. */
+const numBytes = OE.xlsx({ sheets: [{ name: "Figures", rows: [
+  ["Region", "Q1", "Q2", "Note"],
+  ["North", "1,204", "987", "1,5"],
+  ["South", "-2,310.75", "+45", "$1,204"],
+  ["East", "12,345,678", "3.25", "12%"],
+] }] });
+const nz = readZip(numBytes);
+const nsheet = str(nz.find((e) => e.name === "xl/worksheets/sheet1.xml").data);
+t("xlsx: thousands separators become numbers", nsheet.includes("<v>1204</v>") && nsheet.includes("<v>12345678</v>"));
+t("xlsx: negative grouped number keeps its sign", nsheet.includes("<v>-2310.75</v>"));
+t("xlsx: leading plus is dropped, value kept", nsheet.includes("<v>45</v>"));
+t("xlsx: bare numbers still numeric", nsheet.includes("<v>987</v>") && nsheet.includes("<v>3.25</v>"));
+t("xlsx: decimal comma stays text", nsheet.includes(">1,5<"));
+t("xlsx: currency stays text", nsheet.includes("$1,204"));
+t("xlsx: percentage stays text", nsheet.includes("12%"));
+t("xlsx: grouped figures carry the #,##0.## style", nsheet.includes('s="1"'));
+t("xlsx: styles part present and declared",
+  nz.some((e) => e.name === "xl/styles.xml") &&
+  str(nz.find((e) => e.name === "[Content_Types].xml").data).includes("/xl/styles.xml") &&
+  str(nz.find((e) => e.name === "xl/_rels/workbook.xml.rels").data).includes("styles.xml"));
+t("xlsx: styles declare the custom number format",
+  str(nz.find((e) => e.name === "xl/styles.xml").data).includes('numFmtId="164"'));
+
 // ── PPTX ──
 const TABLE_STYLE_NEEDLE = "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}";
 const pptxBytes = OE.pptx({
@@ -270,6 +299,7 @@ function scanXml(entries, label) {
 }
 scanXml(dz, "docx");
 scanXml(xz, "xlsx");
+scanXml(nz, "xlsx-figures");   // the numeric/styles package above
 scanXml(pz, "pptx");
 
 t("OE.xml strips control characters", OE.xml("a\u0001b\u001Fc") === "abc");

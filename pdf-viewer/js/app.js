@@ -189,6 +189,9 @@
         btnRestoreUrlEmpty: $("btn-restore-url-empty"),
         reloadBanner: $("reload-banner"), reloadNow: $("reload-now"), reloadDismiss: $("reload-dismiss"),
         exportModal: $("export-modal"), exportClose: $("export-close"), exportSelNote: $("export-sel-note"),
+        exportDestPath: $("export-dest-path"), exportDestChange: $("export-dest-change"),
+        exportDestReset: $("export-dest-reset"),
+        setExportDir: $("set-export-dir"), btnExportDir: $("btn-export-dir"), btnExportDirReset: $("btn-export-dir-reset"),
         exportOcrTxt: $("export-ocr-txt"), exportOcrMd: $("export-ocr-md"),
         expAnn: $("exp-ann"), expAi: $("exp-ai"), expChat: $("exp-chat"),
         secureModal: $("secure-modal"), securePass: $("secure-pass"), securePass2: $("secure-pass2"),
@@ -220,6 +223,7 @@
         helpModal: $("help-modal"), helpClose: $("help-close"), kbdList: $("kbd-list"),
         feedbackModal: $("feedback-modal"), feedbackType: $("feedback-type"), feedbackText: $("feedback-text"),
         feedbackEmail: $("feedback-email"), feedbackGo: $("feedback-go"), feedbackCancel: $("feedback-cancel"),
+        feedbackSummary: $("feedback-summary"),
         setupModal: $("setup-modal"), startHint: $("start-hint"),
         setupSteps: $("setup-steps"), setupSkip: $("setup-skip"),
         setupNext0: $("setup-next-0"), setupNext1: $("setup-next-1"), setupNext2: $("setup-next-2"),
@@ -572,12 +576,37 @@
         } else {
           el.exportSelNote.hidden = true;
         }
+        this._exportOnce = null;   // a per-export override lasts for one visit
+        this._syncExportDest();
         this._openModal(el.exportModal);
       });
       el.exportClose.addEventListener("click", () => this._closeModal(el.exportModal));
       el.exportModal.querySelectorAll(".export-item").forEach((item) => {
         item.addEventListener("click", () => this._doExport(item.dataset.export));
       });
+
+      // ── where exports land ───────────────────────────────────
+      if (el.exportDestChange) {
+        el.exportDestChange.addEventListener("click", async () => {
+          const dir = await this._pickExportDir();
+          if (!dir) return;
+          this._exportOnce = dir;          // this export only — the default is untouched
+          this._syncExportDest();
+        });
+      }
+      if (el.exportDestReset) {
+        el.exportDestReset.addEventListener("click", () => { this._exportOnce = null; this._syncExportDest(); });
+      }
+      if (el.btnExportDir) {
+        el.btnExportDir.addEventListener("click", async () => {
+          const dir = await this._pickExportDir();
+          if (dir) this._setExportDir(dir);
+        });
+      }
+      if (el.btnExportDirReset) {
+        el.btnExportDirReset.addEventListener("click", () => this._setExportDir(null));
+      }
+      this._restoreExportDir();
 
       // ── Secure PDF (Export ▸ Secure PDF…) ────────────────────
       el.secureCancel.addEventListener("click", () => this._closeModal(el.secureModal));
@@ -886,10 +915,11 @@
       const el = this.elements;
       if (!el.feedbackModal) return;
       el.feedbackType.value = "Bug report";
+      if (el.feedbackSummary) el.feedbackSummary.value = "";
       el.feedbackText.value = "";
       el.feedbackEmail.value = "";
       this._openModal(el.feedbackModal);
-      el.feedbackText.focus();
+      (el.feedbackSummary || el.feedbackText).focus();
     },
 
     async _sendFeedback() {
@@ -901,8 +931,15 @@
       }
       const type = el.feedbackType.value;
       const email = (el.feedbackEmail.value || "").trim();
+      // A summary the person WROTE, not the first 80 characters of the
+      // report. Deriving the title from the body produced issue titles that
+      // stopped mid-sentence, which is what every incoming report then
+      // looked like in the tracker. The old behaviour stays as the
+      // fallback, so the field is optional rather than one more thing to
+      // fill in before you can send.
+      const summary = ((el.feedbackSummary && el.feedbackSummary.value) || "").trim();
       const title = (type === "Bug report" ? "[Bug] " : type === "Feature request" ? "[Feature] " : "") +
-        text.split(/\n/)[0].slice(0, 80);
+        (summary || text.split(/\n/)[0].slice(0, 80));
       // environment block — everything a maintainer needs to reproduce
       const env = [
         "**Environment**",
@@ -4102,6 +4139,9 @@
           if (key < start - 2 || key > end + 2) this._disposePage(key);
         }
       }
+      // a disposal above the viewport changes what the survivors must offset
+      // from, so re-place them before the next paint
+      this._repositionPages();
       this._updateThumbActive();
     },
 
@@ -4228,12 +4268,37 @@
     },
 
     _updatePagePosition(wrap, pageNum) {
-      const p = this.pageLayout[pageNum - 1];
-      if (!p) return;
+      // one page landing changes where every OTHER rendered page must sit, so
+      // placement is always a sweep — see _repositionPages
+      this._repositionPages();
+    },
+
+    /* Place each rendered page by the gap from the wrap ABOVE IT IN THE DOM,
+       never from the previous page NUMBER. Virtualisation disposes pages that
+       scroll out of range, so the previous number is usually not in the DOM at
+       all: measuring the offset from it gave the first surviving wrap a bare
+       30px margin instead of its real position, and the whole rendered block
+       collapsed to the top of the container. With the scroller parked tens of
+       thousands of pixels down, that put every page off-screen and the viewer
+       went blank — reliably for any jump of five pages or more, which is
+       exactly where the pages between origin and target start being disposed.
+       Scrolling could never recover it, because each new page landed into the
+       same collapsed block. */
+    _repositionPages() {
+      const wraps = this.elements.pages.querySelectorAll(".page-wrap");
       // in spread mode the pair rows are placed by flex-wrap + gap — margins
       // would fight the row geometry, so the container's class owns it
-      if (this.viewMode === "spread") { wrap.style.marginTop = ""; return; }
-      wrap.style.marginTop = (p.top - (pageNum > 1 ? this.pageLayout[pageNum - 2].top + this.pageLayout[pageNum - 2].height : 0)) + "px";
+      if (this.viewMode === "spread") {
+        for (const w of wraps) w.style.marginTop = "";
+        return;
+      }
+      let prevBottom = 0;
+      for (const w of wraps) {
+        const p = this.pageLayout[Number(w.dataset.page) - 1];
+        if (!p) continue;
+        w.style.marginTop = (p.top - prevBottom) + "px";
+        prevBottom = p.top + p.height;
+      }
     },
 
     _disposePage(pageNum) {
@@ -5264,9 +5329,75 @@
     },
 
     /* ── export ────────────────────────────────────────────── */
+    /* ── where exports land ─────────────────────────────────────
+       The default is remembered here and pushed to the main process, which is
+       what actually writes the file in the will-download handler. A change made
+       from the export dialog is a ONE-SHOT override: it applies to the export
+       you are about to run and leaves the default alone. */
+    EXPORT_DIR_KEY: "volt:export-dir",
+
+    async _pickExportDir() {
+      if (!global.voltDesktop || !voltDesktop.pickExportDir) {
+        this.toast("Choosing a folder needs the desktop app", "error");
+        return null;
+      }
+      try { return await voltDesktop.pickExportDir(); }
+      catch (e) { this.toast("Couldn't open the folder picker", "error"); return null; }
+    },
+
+    async _setExportDir(dir) {
+      this._exportDir = dir || null;
+      try {
+        if (dir) localStorage.setItem(this.EXPORT_DIR_KEY, dir);
+        else localStorage.removeItem(this.EXPORT_DIR_KEY);
+      } catch (e) { /* private mode — the session still honours it */ }
+      if (global.voltDesktop && voltDesktop.setExportDir) {
+        try { await voltDesktop.setExportDir(dir || null); } catch (e) { /* ignore */ }
+      }
+      this._syncExportDest();
+    },
+
+    async _restoreExportDir() {
+      let saved = null;
+      try { saved = localStorage.getItem(this.EXPORT_DIR_KEY); } catch (e) { /* private mode */ }
+      this._exportDir = saved || null;
+      if (global.voltDesktop && voltDesktop.setExportDir && saved) {
+        try { await voltDesktop.setExportDir(saved); } catch (e) { /* ignore */ }
+      }
+      if (global.voltDesktop && voltDesktop.exportDir) {
+        try { const info = await voltDesktop.exportDir(); this._downloadsDir = info && info.downloads; }
+        catch (e) { /* ignore */ }
+      }
+      this._syncExportDest();
+    },
+
+    _syncExportDest() {
+      const el = this.elements;
+      const fallback = this._downloadsDir || "Downloads";
+      const eff = this._exportOnce || this._exportDir || fallback;
+      // show the last two folders, so a long path stays readable in a narrow dialog
+      const SEP = ["\\", "/"];
+      const short = (full) => {
+        const parts = String(full).split(SEP[0]).join("/").split("/").filter(Boolean);
+        return parts.length > 2 ? "..." + SEP[0] + parts.slice(-2).join(SEP[0]) : String(full);
+      };
+      if (el.exportDestPath) {
+        el.exportDestPath.textContent = short(eff);
+        el.exportDestPath.title = eff;
+      }
+      if (el.exportDestReset) el.exportDestReset.hidden = !this._exportOnce;
+      if (el.setExportDir) el.setExportDir.value = this._exportDir || "";
+      if (el.btnExportDirReset) el.btnExportDirReset.disabled = !this._exportDir;
+    },
+
     async _doExport(kind) {
       const el = this.elements;
       const base = (this.currentDocInfo?.name || "document").replace(/\.pdf$/i, "");
+      // a "just this once" folder chosen in the export dialog, consumed by the
+      // next download and then forgotten by the main process
+      if (this._exportOnce && global.voltDesktop && voltDesktop.nextExportDir) {
+        try { await voltDesktop.nextExportDir(this._exportOnce); } catch (e) { /* ignore */ }
+      }
       try {
         if (kind === "pdf") {
           const bytes = await Volt.Ann.toAnnotatedPdf();

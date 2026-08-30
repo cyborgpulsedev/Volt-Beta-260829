@@ -4,6 +4,51 @@ Each release is a `## x.y.z` section. The version banner tooltip shows the
 sections newer than the installed bundle, so a pending update tells you what
 changed before you restart.
 
+## 1.0.7
+
+Everything a full beta pass over 1.0.6 turned up, plus somewhere to put your
+files.
+
+- **Any page more than four away from the current one rendered nothing.**
+  `_updatePagePosition` placed each page by the gap from the previous page
+  NUMBER, but virtualisation disposes the pages you scroll past, so that
+  neighbour was usually not in the DOM. The first surviving wrap got a bare
+  30px margin instead of its real offset and the whole rendered block collapsed
+  to the top of the container, while the scroller sat tens of thousands of
+  pixels down — so the document pane went blank and no amount of scrolling
+  brought it back. Placement is now a sweep over the wraps that are ACTUALLY in
+  the DOM (`_repositionPages`), re-run after every insert and every disposal.
+  Clicking a thumbnail, End, Home and the page field all land on a painted page
+  again.
+- **Spreadsheet exports write figures as figures.** The numeric test only
+  matched bare digits, so one table arrived with "987" as a number and "1,204"
+  beside it as text and Excel would not sum the column. Thousands separators
+  now convert, carrying a `#,##0.##` format so the cell still READS the way it
+  did in the PDF. Deliberately narrow: commas must group in exact threes, so a
+  European decimal comma, currency symbols and percentages stay text rather
+  than being silently reinterpreted.
+- **Uninstall no longer leaves the PDF association pointing at nothing.**
+  electron-builder removes its own ProgID key but leaves
+  `Software\Classes\.pdf` still naming it. The uninstaller clears that value —
+  only while it is still ours, so a reader chosen since is left alone.
+- **Feedback issues get a title someone wrote.** The title was the first 80
+  characters of the report, so reports arrived in the tracker cut off
+  mid-sentence. The dialog asks for a one-line summary; leaving it empty falls
+  back to the old behaviour.
+- **You can choose where exports and saved files go.** Settings → Files sets
+  the default, and the export dialog shows the destination with a Change… for
+  one export only. Downloads is frequently redirected into OneDrive, which
+  quietly synced every export to the cloud in an app whose whole promise is
+  that nothing leaves the machine unless you choose it.
+- **Tests**: the smoke gate builds a real 60-page document and jumps by 1, 2,
+  4, 5, 7, 12 and 30 pages, to both ends and 56 pages backwards, asserting a
+  page is PAINTED in the viewport each time rather than that the readout
+  changed. It then moves and deletes pages deep in that document and undoes it
+  all. Every previous probe ran against a 3-page sample, which is why a viewer
+  that could not show page 8 passed every gate. `test:office` gains ten
+  assertions covering numeric cells, the formats that must stay text, and the
+  styles part.
+
 ## 1.0.6
 
 The two commits that landed after 1.0.5 was cut, published so the installer
