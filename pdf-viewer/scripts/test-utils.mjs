@@ -551,5 +551,25 @@ t("injectPdfTrailerId: RANDOM derives a 32-hex id from the source", (() => {
   return !!m;
 })());
 
+/* -- the updater contract --------------------------------------
+   "Check for updates" reported an error for every check, including ones where
+   a newer release really was on the feed, because the handler branched on
+   result.status - a field electron-updater's UpdateCheckResult has never had.
+   The automatic path was fine (it runs off events), so nothing else noticed.
+   These assertions catch reading a field that does not exist, and re-fire if a
+   future electron-updater changes the shape underneath us. */
+{
+  const dts = readFileSync(join(__dirname, "..", "node_modules", "electron-updater", "out", "types.d.ts"), "utf8");
+  const open = dts.indexOf("export interface UpdateCheckResult {");
+  const body = open < 0 ? "" : dts.slice(open, dts.indexOf("}", open));
+  t("updater: UpdateCheckResult exposes isUpdateAvailable", body.includes("isUpdateAvailable"));
+  t("updater: UpdateCheckResult has no status field", body.length > 0 && !body.includes("status"));
+  const mainSrc = readFileSync(join(__dirname, "..", "main.js"), "utf8");
+  const at = mainSrc.indexOf("volt:check-for-updates");
+  const handler = at < 0 ? "" : mainSrc.slice(at, at + 1400);
+  t("updater: the check handler reads isUpdateAvailable, not a status field",
+    handler.includes("isUpdateAvailable") && !handler.includes("r.status"));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

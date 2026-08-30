@@ -7808,14 +7808,17 @@ if (!gotLock) {
         try {
           const r = await autoUpdater.checkForUpdates();
           if (!r || !r.updateInfo) return { status: "error", error: "no result from updater" };
-          const status = String(r.status || "");
+          /* electron-updater's UpdateCheckResult carries isUpdateAvailable,
+             updateInfo, downloadPromise and cancellationToken — there is no
+             `status` field, and reading one meant every manual check fell
+             through to "unexpected updater status: " with an EMPTY status,
+             reporting an error even while a newer release sat on the feed.
+             The automatic path was unaffected because it runs off the
+             update-available / update-downloaded events instead. */
           const version = r.updateInfo.version;
-          if (status.includes("not-available")) return { status: "not-available" };
-          if (status.includes("downloaded")) return { status: "update-downloaded", version };
-          if (status.includes("available") || status.includes("downloading")) {
-            return { status: pendingUpdateVersion ? "update-downloaded" : "available", version };
-          }
-          return { status: "error", error: "unexpected updater status: " + status };
+          if (pendingUpdateVersion) return { status: "update-downloaded", version: pendingUpdateVersion };
+          if (!r.isUpdateAvailable) return { status: "not-available" };
+          return { status: "available", version };
         } catch (e) {
           return { status: "error", error: String((e && e.message) || e) };
         }

@@ -1,10 +1,11 @@
-## Volt 1.0.7
+## Volt 1.0.8
 
 Volt is a fast, private, ad-free PDF reader with AI built in — everything renders locally, and you bring your own LLM. No account, no telemetry, no upsells.
 
-**This release fixes reading long documents.** A full beta pass over 1.0.6 found that jumping more than four pages left the page blank. That is fixed, along with three other defects, and you can now choose where your files are saved.
+**This release fixes reading long documents.** A full beta pass found that jumping more than four pages left the page blank. That is fixed, along with four other defects, and you can now choose where your files are saved.
 
-**Fixed in 1.0.7**
+**Fixed in 1.0.8**
+- **"Check for updates" works.** The menu item reported an error every single time, even when a newer version was waiting. Automatic updates were never affected — only the manual check.
 - **Pages appear again when you jump.** In any document longer than about six pages, clicking a thumbnail five or more pages away — or pressing End — updated the page number and showed nothing at all. Scrolling and zooming would not bring it back; you had to navigate back to where you started. Every way of moving around a document now lands on a page you can actually see.
 - **Spreadsheet exports produce numbers you can add up.** Figures with thousands separators came out as text — so `1,204` could not be summed while `987` in the same column could. They now export as real numbers and still display with their separators. Currency, percentages and decimal commas are deliberately left as text, because converting them would change what the cell means.
 - **Uninstalling no longer leaves PDFs pointing at a program that is gone.** The per-user file association survived an uninstall. It is cleared now — unless you have since chosen another reader, in which case yours is left alone.
@@ -26,7 +27,7 @@ Volt is a fast, private, ad-free PDF reader with AI built in — everything rend
 - Read aloud with local voices, and talk to the AI with your microphone
 
 **Install**
-- **New installs:** download `Volt-Setup-1.0.7.exe` and run it — per-user install, no admin needed, desktop and Start-menu shortcuts. Windows SmartScreen may warn on first launch: click "More info" → "Run anyway".
+- **New installs:** download `Volt-Setup-1.0.8.exe` and run it — per-user install, no admin needed, desktop and Start-menu shortcuts. Windows SmartScreen may warn on first launch: click "More info" → "Run anyway".
 - **Existing installs:** the built-in updater picks this up automatically.
 
 **Requirements**

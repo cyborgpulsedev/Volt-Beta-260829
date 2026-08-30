@@ -81,9 +81,22 @@ console.log(allowUnsigned
 const r = spawnSync(process.platform === "win32" ? "npx.cmd" : "npx",
   ["electron-builder", "--win", "nsis", "--publish", "always", ...extraArgs],
   { stdio: "inherit", timeout: 15 * 60 * 1000, shell: process.platform === "win32" });
-if (r.status !== 0) {
-  console.error("❌ electron-builder failed (status " + r.status + ")");
+/* electron-builder uploads a release's assets concurrently and each uploader
+   decides for itself whether the release needs creating. They race: one wins,
+   the others 422, and the run exits non-zero having uploaded only SOME files.
+   Twice that left a published release with the installer but no latest.yml —
+   a working download page and a 404 update feed, which is the worse half to
+   lose because nothing looks wrong from outside. Reconcile before deciding
+   whether the release actually failed. */
+const finish = spawnSync(process.execPath, [join(__dirname, "finish-release.cjs")], { stdio: "inherit" });
+if (r.status !== 0 && finish.status === 0) {
+  console.log("· electron-builder exited " + r.status + ", but the release reconciled cleanly.");
+} else if (r.status !== 0) {
+  console.error("❌ electron-builder failed (status " + r.status + ") and the release is incomplete");
   process.exit(r.status === null ? 1 : r.status);
+} else if (finish.status !== 0) {
+  console.error("❌ the published release is incomplete — see above");
+  process.exit(1);
 }
 
 if (allowUnsigned) {

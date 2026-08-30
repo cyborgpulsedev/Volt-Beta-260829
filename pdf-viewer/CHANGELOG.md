@@ -4,6 +4,32 @@ Each release is a `## x.y.z` section. The version banner tooltip shows the
 sections newer than the installed bundle, so a pending update tells you what
 changed before you restart.
 
+## 1.0.8
+
+- **"Check for updates" reported an error every time**, including when a newer
+  release really was sitting on the feed. The handler branched on
+  `result.status`, a field electron-updater's `UpdateCheckResult` has never
+  had, so every check fell through to `unexpected updater status: ` with an
+  empty status. It reads `isUpdateAvailable` now. Automatic updates were
+  unaffected — they run off the update-available / update-downloaded events —
+  which is why nothing noticed until someone pressed the menu item.
+- **The release script reconciles what it published.** electron-builder uploads
+  a release's assets concurrently and each uploader decides for itself whether
+  the release needs creating; they race, one wins, the rest 422, and the run
+  exits having uploaded only some of the files. Twice that shipped a release
+  with the installer but no `latest.yml` — a download page that works and an
+  update feed that 404s, the worse half to lose because nothing looks wrong
+  from outside. `scripts/finish-release.cjs` now rebuilds the feed from the
+  artifact on disk, uploads whatever is missing, sets the notes, and fails
+  loudly unless the feed's size and SHA-512 match the installer that is
+  actually attached. `npm run release` calls it and treats a reconciled
+  release as a success.
+- **Tests**: `test:utils` asserts the updater contract directly — that
+  `UpdateCheckResult` exposes `isUpdateAvailable` and has no `status` field,
+  and that the handler reads the former — so reading a field that does not
+  exist cannot come back, and a future electron-updater changing the shape
+  fails the gate rather than the feature.
+
 ## 1.0.7
 
 Everything a full beta pass over 1.0.6 turned up, plus somewhere to put your
