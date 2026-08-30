@@ -214,12 +214,17 @@
         const sz = para.size > 3 && para.size < 200 ? para.size : 0;
         const lead = para.lead > 0 ? Math.max(para.lead, (sz || 11) * 1.02) : 0;
         const szTag = sz ? '<w:sz w:val="' + Math.round(sz * 2) + '"/>' : "";
+        const ft = para.font;
+        const fontTag = ft
+          ? '<w:rFonts w:ascii="' + OE.xml(ft.family) + '" w:hAnsi="' + OE.xml(ft.family) +
+            '" w:cs="' + OE.xml(ft.family) + '"/>' + (ft.bold ? "<w:b/>" : "") + (ft.italic ? "<w:i/>" : "")
+          : "";
+        const runPr = fontTag || szTag ? "<w:rPr>" + fontTag + szTag + "</w:rPr>" : "";
         const spacing = lead
           ? '<w:spacing w:before="0" w:after="0" w:line="' + Math.round(lead * 20) + '" w:lineRule="exact"/>'
           : '<w:spacing w:after="80"/>';
-        body += "<w:p><w:pPr>" + spacing + (szTag ? "<w:rPr>" + szTag + "</w:rPr>" : "") + "</w:pPr>" +
-          "<w:r>" + (szTag ? "<w:rPr>" + szTag + "</w:rPr>" : "") +
-          '<w:t xml:space="preserve">' + OE.xml(t) + "</w:t></w:r></w:p>";
+        body += "<w:p><w:pPr>" + spacing + runPr + "</w:pPr>" +
+          "<w:r>" + runPr + '<w:t xml:space="preserve">' + OE.xml(t) + "</w:t></w:r></w:p>";
       }
       for (const grid of pg.tables || []) body += docxTable(grid);
       for (const img of pg.images || []) {
@@ -731,7 +736,7 @@
       let row = null;
       for (const r of rows) if (Math.abs(r.y - y) <= tol) { row = r; break; }
       if (!row) { row = { y, h: 0, tokens: [] }; rows.push(row); }
-      row.tokens.push({ x, x2: x + w, text: s });
+      row.tokens.push({ x, x2: x + w, text: s, f: it.fontName || null });
       if (h > row.h) row.h = h;
     }
     rows.sort((a, b) => b.y - a.y);
@@ -1145,6 +1150,157 @@
      line, and the page it sits on — is most of the way to a page that holds
      what it held. */
 
+  /* ── columns ─────────────────────────────────────────────────
+     Lines are grouped by their Y position across the FULL page width, which
+     is right for a single column and wrong for two: a line of the left column
+     and the line beside it in the right column share a Y, so they are joined
+     into one line and the exported text reads
+     "The survey concluded that   Appendix B lists the raw" — both columns
+     interleaved, sentence by sentence, unreadable.
+
+     Finding the gutter is enough to fix it. A real gutter is a vertical band
+     that no token crosses, wide enough not to be a word space, running down
+     most of the page. Split the tokens at it, regroup each side on its own,
+     and emit the bands left to right — which is the order they are read in. */
+
+  /** Vertical bands of a page separated by gutters no token crosses.
+      Returns [{x1,x2}] in reading order, or a single full-width band when the
+      page is one column — which is the common case and must cost nothing. */
+  OE.detectColumns = function (lines, pageW) {
+    const toks = [];
+    for (const l of lines || []) for (const tk of l.tokens || []) toks.push(tk);
+    // too few tokens to tell a gutter from a coincidence — a title page with
+    // three centred lines has empty bands everywhere and no columns at all
+    if (toks.length < 6) return [{ x1: 0, x2: pageW || 1e6 }];
+    let minX = Infinity, maxX = -Infinity;
+    for (const tk of toks) { if (tk.x < minX) minX = tk.x; if (tk.x2 > maxX) maxX = tk.x2; }
+    const span = maxX - minX;
+    if (!(span > 40)) return [{ x1: 0, x2: pageW || 1e6 }];
+
+    // occupancy over the text span, 2pt buckets
+    const BUCKET = 2;
+    const n = Math.ceil(span / BUCKET) + 1;
+    const hit = new Uint32Array(n);
+    for (const tk of toks) {
+      const a = Math.max(0, Math.floor((tk.x - minX) / BUCKET));
+      const b = Math.min(n - 1, Math.ceil((tk.x2 - minX) / BUCKET));
+      for (let i = a; i <= b; i++) hit[i]++;
+    }
+    // a gutter must be wider than a word space and sit inside the text, never
+    // at its edges — a wide left indent is not a column boundary
+    const MIN_GUTTER = 14;                       // points
+    const edge = Math.max(2, Math.round(span * 0.12 / BUCKET));
+    const gutters = [];
+    let run = 0;
+    for (let i = 0; i <= n; i++) {
+      const empty = i < n && hit[i] === 0;
+      if (empty) { run++; continue; }
+      if (run * BUCKET >= MIN_GUTTER) {
+        const gs = i - run, ge = i - 1;
+        if (gs > edge && ge < n - edge) gutters.push({ a: gs, b: ge });
+      }
+      run = 0;
+    }
+    if (!gutters.length) return [{ x1: 0, x2: pageW || 1e6 }];
+
+    // bands, then keep only a split where BOTH sides carry real text — a
+    // marginal note or a page number must not become a column
+    const cuts = gutters.map((g) => minX + ((g.a + g.b) / 2) * BUCKET);
+    const edges = [minX - 1, ...cuts, maxX + 1];
+    const bands = [];
+    for (let i = 0; i < edges.length - 1; i++) bands.push({ x1: edges[i], x2: edges[i + 1] });
+    const counts = bands.map((bd) => toks.filter((tk) => tk.x >= bd.x1 && tk.x < bd.x2).length);
+    const total = toks.length;
+    const keep = bands.filter((bd, i) => counts[i] / total >= 0.15);
+    return keep.length > 1 ? keep : [{ x1: 0, x2: pageW || 1e6 }];
+  };
+
+  /** Re-read a page's lines column by column. With one column the input is
+      returned untouched, so a single-column document pays nothing. */
+  OE.orderByColumns = function (lines, pageW) {
+    const bands = OE.detectColumns(lines, pageW);
+    if (bands.length < 2) return lines;
+    const out = [];
+    for (const bd of bands) {
+      const rows = [];
+      for (const l of lines) {
+        const inBand = (l.tokens || []).filter((tk) => tk.x >= bd.x1 && tk.x < bd.x2);
+        if (!inBand.length) continue;
+        rows.push({
+          y: l.y, h: l.h, tokens: inBand,
+          text: inBand.map((tk) => tk.text).join(" "),
+        });
+      }
+      rows.sort((a, b) => b.y - a.y);
+      out.push(...rows);
+    }
+    return out;
+  };
+
+  /* ── fonts ───────────────────────────────────────────────────
+     Every exported line came out in Word's default sans-serif, so a document
+     set in a serif face changed character completely and, because the metrics
+     differ, changed length too. The embedded font's own name is the best
+     evidence available: PDF font names carry their family and their weight,
+     and mapping them onto the three faces every Word install has is both
+     reliable and enough. Matching the exact face would need the font
+     embedded, which is a different and much larger job. */
+
+  /** A PDF font name mapped onto a face Word is certain to have, plus the
+      weight and slant the name declares. */
+  OE.mapFont = function (name) {
+    const n = String(name || "");
+    const lower = n.toLowerCase();
+    const bold = /bold|black|heavy|semib|demi/.test(lower);
+    const italic = /italic|oblique/.test(lower);
+    let family = "Arial";
+    if (/courier|mono|consol/.test(lower)) family = "Courier New";
+    else if (/times|serif|georgia|garamond|book|roman|minion|cambria|palatino/.test(lower) &&
+             !/sans/.test(lower)) family = "Times New Roman";
+    return { family, bold, italic };
+  };
+
+  /** Resolve a page's font ids to their real names. pdf.js hands text items an
+      internal id ("g_d0_f1"); the name lives in commonObjs once the operator
+      list has been walked, which the table pass already does. */
+  OE.fontNames = function (page, ids) {
+    const map = new Map();
+    const co = page && page.commonObjs;
+    if (!co || typeof co.get !== "function") return map;
+    for (const id of ids || []) {
+      if (!id || map.has(id)) continue;
+      try {
+        // has() first: get() THROWS on an unresolved id rather than returning
+        // null, and one unloaded font must not cost the whole page its faces
+        if (typeof co.has === "function" && !co.has(id)) continue;
+        const d = co.get(id);
+        const nm = d && (d.name || d.loadedName || d.fallbackName);
+        if (nm) map.set(id, nm);
+      } catch (e) { /* this font stays default; the rest still resolve */ }
+    }
+    return map;
+  };
+
+  /** Every font id a page's lines refer to. */
+  function fontIdsOf(lines) {
+    const ids = new Set();
+    for (const l of lines || []) for (const tk of l.tokens || []) if (tk.f) ids.add(tk.f);
+    return ids;
+  }
+
+  /** The face most of a line's characters are set in. */
+  function lineFont(line, names) {
+    const weigh = new Map();
+    for (const tk of line.tokens || []) {
+      if (!tk.f) continue;
+      const n = (names && names.get(tk.f)) || tk.f;
+      weigh.set(n, (weigh.get(n) || 0) + (tk.text ? tk.text.length : 1));
+    }
+    let best = null, bestN = 0;
+    for (const [n, c] of weigh) if (c > bestN) { best = n; bestN = c; }
+    return best ? OE.mapFont(best) : null;
+  }
+
   /** The page's size in PDF points, rotation applied. */
   OE.pageSize = function (page) {
     try {
@@ -1159,7 +1315,7 @@
   /** One line's paragraph record: its text, the point size it was set in, the
       distance down to the next line, and its left edge — all in PDF points,
       which are also Word's points, so no conversion is needed beyond twips. */
-  OE.lineMetrics = function (line, next) {
+  OE.lineMetrics = function (line, next, names) {
     const size = line.h > 0.5 ? line.h : 0;
     // leading is the gap to the NEXT line's baseline; the last line of a page
     // has none, so it borrows its own size
@@ -1170,7 +1326,7 @@
     const lead = (next && next.y != null && line.y != null && line.y - next.y > 0.5)
       ? line.y - next.y : (size ? size * 1.15 : 0);
     const x = line.tokens && line.tokens.length ? line.tokens[0].x : 0;
-    return { text: line.text, size, lead, x, y: line.y };
+    return { text: line.text, size, lead, x, y: line.y, font: lineFont(line, names) };
   };
 
   /** The size most of the document's pages share — Word sections carry ONE
@@ -1235,10 +1391,15 @@
       if (p < 1 || p > doc.numPages) continue;
       const page = await doc.getPage(p);
       const pt = await pageTables(page, edits.filter((e) => e.page === p));
-      const kept = pt.lines.filter((l, i) => !pt.lineIndexes.has(i));
-      const paragraphs = kept.map((l, i) => OE.lineMetrics(l, kept[i + 1]));
+      const size = OE.pageSize(page);
+      // column order BEFORE metrics: leading is the gap to the next line in
+      // reading order, which in two columns is the line below it in the same
+      // column, not the one beside it in the other
+      const kept = OE.orderByColumns(pt.lines.filter((l, i) => !pt.lineIndexes.has(i)), size.w);
+      const names = OE.fontNames(page, fontIdsOf(kept));
+      const paragraphs = kept.map((l, i) => OE.lineMetrics(l, kept[i + 1], names));
       const images = await OE.detectImages(page, pt.ops);
-      out.push({ num: p, size: OE.pageSize(page), paragraphs, tables: pt.tables, images });
+      out.push({ num: p, size, paragraphs, tables: pt.tables, images });
     }
     return { title: (app.currentDocInfo && app.currentDocInfo.name) || "Document", pages: out };
   };
@@ -1273,10 +1434,13 @@
       const page = await doc.getPage(p);
       const tc = await page.getTextContent();
       const items = (tc.items || []).filter((i) => i.str && i.str.trim());
-      const lines = OE.groupLines(items);
-      applyTextEdits(lines, edits.filter((e) => e.page === p));
-      out.push({ num: p, size: OE.pageSize(page), tables: [], images: [],
-        paragraphs: lines.map((l, i) => OE.lineMetrics(l, lines[i + 1])) });
+      const size = OE.pageSize(page);
+      const raw = OE.groupLines(items);
+      applyTextEdits(raw, edits.filter((e) => e.page === p));
+      const lines = OE.orderByColumns(raw, size.w);
+      const names = OE.fontNames(page, fontIdsOf(lines));
+      out.push({ num: p, size, tables: [], images: [],
+        paragraphs: lines.map((l, i) => OE.lineMetrics(l, lines[i + 1], names)) });
     }
     return { title: (app.currentDocInfo && app.currentDocInfo.name) || "Document", pages: out };
   };

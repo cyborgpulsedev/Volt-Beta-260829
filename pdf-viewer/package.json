@@ -1,7 +1,7 @@
 {
   "name": "volt-pdf-reader",
   "productName": "Volt",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "description": "Fast, private, ad-free PDF reader/editor with AI built in — powered by your local LLM.",
   "author": "Volt",
   "main": "main.js",
@@ -19,6 +19,7 @@
     "test:pdfbox": "node scripts/test-pdfbox.mjs",
     "test:lock": "node scripts/test-lock.mjs",
     "test:office": "node scripts/test-office.mjs",
+    "test:docx-fidelity": "node scripts/test-docx-fidelity.mjs",
     "test:artifacts": "node scripts/test-artifact-regression.mjs",
     "test:release-feed": "node scripts/test-release-feed.mjs",
     "check:launchers": "node ../scripts/check-launchers.cjs",

@@ -4,6 +4,44 @@ Each release is a `## x.y.z` section. The version banner tooltip shows the
 sections newer than the installed bundle, so a pending update tells you what
 changed before you restart.
 
+## 1.0.12
+
+**Word export: columns read in order, and the type looks like the document's.**
+Second slice of the layout work, plus the gate that measures it.
+
+- **Two-column pages are read column by column.** Lines were grouped by their
+  Y position across the full page width, which is right for one column and
+  wrong for two: a line on the left and the line beside it on the right share
+  a Y, so they were joined into one and the export read as both columns
+  interleaved, sentence by sentence. A gutter is now found by looking for a
+  vertical band no token crosses — wide enough not to be a word space, inside
+  the text rather than at its edge, and with real text on both sides so a
+  page number or a marginal note cannot become a column. Verified on a real
+  two-column PDF: 60 lines, left column first in order, right column after,
+  zero lines mixing the two. A single-column page is returned untouched and
+  pays nothing.
+- **Type is matched to the document's.** Every line came out in Word's default
+  sans-serif, so a serif document changed character and — because the metrics
+  differ — changed length. The PDF font's own name carries its family and
+  weight; it is mapped onto Times New Roman, Arial or Courier New, with bold
+  and italic read from the same name. Resolved through `commonObjs.has()`
+  before `get()`, because `get()` throws on an unresolved id and one unloaded
+  font must not cost a page its faces.
+
+**New gate: `npm run test:docx-fidelity`.** LibreOffice renders the exported
+`.docx` and counts the pages a reader would actually see. Every other office
+test asserts structure, and none of them could see the failure that mattered
+most: a dense A4 report reflowed onto Letter came out at twice its page count
+from a perfectly valid file. The overflow that caused it was four twips a page
+— 0.2pt — which only a renderer can settle. Proven to fail: reintroducing the
+old fixed-Letter section turns 12 pages into 24 and the gate red. Soft-skips
+when LibreOffice is absent, and CI installs it.
+
+Still to come: tables rebuilt from ruling lines. Also found while testing —
+a two-column prose page is currently classified as a table by the gap
+detector, so it exports as a two-column table rather than flowing text. That
+is the next thing to fix.
+
 ## 1.0.11
 
 **Word export: a page holds what it held.** First slice of the layout work.

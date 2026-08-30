@@ -387,6 +387,64 @@ t("layout: a landscape page is marked landscape", (() => {
 })());
 scanXml(lz, "docx-layout");
 
+/* -- columns --------------------------------------------------
+   Lines are grouped by Y across the full page width, which is right for one
+   column and wrong for two: a line on the left and the line beside it on the
+   right share a Y and were joined into a single line, so the export read as
+   both columns interleaved sentence by sentence. */
+const LEFT = ["The survey concluded that", "readings were consistent.", "No deviation was found.",
+  "Each station reported in.", "The margin held throughout.", "Section four follows."];
+const RIGHT = ["Appendix B lists the raw", "figures for each station.", "Totals appear at the foot.",
+  "Corrections are footnoted.", "The series runs to nine.", "See also appendix C."];
+// a 595pt page, two columns with a gutter at 290..330
+const twoCol = LEFT.map((lt, i) => {
+  const tokens = [{ x: 50, x2: 280, text: lt }, { x: 330, x2: 550, text: RIGHT[i] }];
+  return { y: 700 - i * 12, h: 10, tokens, text: tokens.map((t2) => t2.text).join(" ") };
+});
+const bands = OE.detectColumns(twoCol, 595);
+t("columns: a two-column page is split at its gutter", bands.length === 2);
+const ordered = OE.orderByColumns(twoCol, 595);
+t("columns: the left column is read out in full first",
+  ordered.length === 12 && ordered.slice(0, 6).every((l, i) => l.text === LEFT[i]));
+t("columns: the right column follows, in its own order",
+  ordered.slice(6).every((l, i) => l.text === RIGHT[i]));
+t("columns: no line mixes text from both columns",
+  ordered.every((l) => !(l.text.includes("survey") && l.text.includes("Appendix"))));
+
+// a single column, a wide indent, and a page number must NOT be split
+const oneCol = [
+  { y: 700, h: 10, tokens: [{ x: 50, x2: 540, text: "A single wide line of body text running the full measure." }] },
+  { y: 688, h: 10, tokens: [{ x: 90, x2: 540, text: "An indented continuation line beneath it." }] },
+  { y: 676, h: 10, tokens: [{ x: 50, x2: 540, text: "And another full-width line to establish the measure." }] },
+  { y: 40, h: 8, tokens: [{ x: 290, x2: 305, text: "12" }] },
+].map((r) => Object.assign(r, { text: r.tokens.map((t2) => t2.text).join(" ") }));
+t("columns: a single-column page is left alone", OE.detectColumns(oneCol, 595).length === 1);
+t("columns: single-column lines are returned untouched", OE.orderByColumns(oneCol, 595) === oneCol);
+
+/* -- fonts -----------------------------------------------------
+   Every exported line came out in Word's default sans-serif, so a serif
+   document changed character - and, because the metrics differ, changed
+   length. The PDF font's own name carries its family and weight; mapping it
+   onto the three faces every Word install has is reliable and enough. */
+t("fonts: a serif family maps to Times New Roman", OE.mapFont("ABCDEF+TimesNewRomanPSMT").family === "Times New Roman");
+t("fonts: Garamond is serif too", OE.mapFont("Garamond-Regular").family === "Times New Roman");
+t("fonts: a monospace family maps to Courier New", OE.mapFont("Courier-Bold").family === "Courier New");
+t("fonts: anything else falls back to Arial", OE.mapFont("Helvetica").family === "Arial");
+t("fonts: a sans face is not mistaken for serif because it says 'sans'",
+  OE.mapFont("PTSans-Bold").family === "Arial");
+t("fonts: weight is read from the name", OE.mapFont("Arial-BoldMT").bold === true && OE.mapFont("ArialMT").bold === false);
+t("fonts: slant is read from the name", OE.mapFont("TimesNewRomanPS-ItalicMT").italic === true);
+t("fonts: an oblique face counts as italic", OE.mapFont("Helvetica-Oblique").italic === true);
+t("fonts: an unknown name still yields a usable face", !!OE.mapFont("").family);
+{
+  const fdoc = { title: "F", pages: [{ num: 1, size: { w: 595, h: 842 }, tables: [], images: [],
+    paragraphs: [{ text: "Serif body", size: 10, lead: 12, x: 40, y: 700, font: { family: "Times New Roman", bold: false, italic: false } },
+                 { text: "Bold heading", size: 14, lead: 18, x: 40, y: 680, font: { family: "Arial", bold: true, italic: true } }] }] };
+  const fx = str(readZip(OE.docx(fdoc)).find((e) => e.name === "word/document.xml").data);
+  t("fonts: the face reaches the run", fx.includes('w:ascii="Times New Roman"') && fx.includes('w:ascii="Arial"'));
+  t("fonts: bold and italic reach the run", fx.includes("<w:b/>") && fx.includes("<w:i/>"));
+}
+
 scanXml(xz, "xlsx");
 scanXml(nz, "xlsx-figures");   // the numeric/styles package above
 scanXml(pz, "pptx");
