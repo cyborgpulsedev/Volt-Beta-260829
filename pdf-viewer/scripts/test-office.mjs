@@ -298,6 +298,48 @@ function scanXml(entries, label) {
   t(label + ": no attribute written as an element name", badEl.length === 0);
 }
 scanXml(dz, "docx");
+/* -- text-only exports ------------------------------------------
+   These promise less than the layout-preserving exports and must always
+   deliver it, so the assertions are about faithfulness rather than structure:
+   every line survives, page boundaries are marked, and a CSV cell that
+   contains the delimiter, a quote or a newline still round-trips. */
+const textDoc = {
+  title: "Sample.pdf",
+  pages: [
+    { num: 1, paragraphs: [{ text: "First line of page one." }, { text: "Second line." }], tables: [], images: [] },
+    { num: 2, paragraphs: [{ text: "Page two opens here." }], tables: [], images: [] },
+  ],
+};
+const txt = OE.txt(textDoc);
+t("txt: every line survives", txt.includes("First line of page one.") && txt.includes("Second line.") && txt.includes("Page two opens here."));
+t("txt: pages are marked", txt.includes("--- Page 1 ---") && txt.includes("--- Page 2 ---"));
+t("txt: lines are in document order", txt.indexOf("First line") < txt.indexOf("Second line") && txt.indexOf("Second line") < txt.indexOf("Page two"));
+const CR = String.fromCharCode(13), LF = String.fromCharCode(10);
+t("txt: CRLF line endings for Notepad",
+  txt.includes(CR + LF) && txt.split(LF).length === txt.split(CR + LF).length);
+t("txt: empty document yields empty string", OE.txt({ title: "x", pages: [] }) === String.fromCharCode(13) + String.fromCharCode(10));
+
+const csv = OE.csv([{ page: 1, rows: [["Region", "Q1"], ["North", "1,204"], ['He said "hi"', "line" + String.fromCharCode(10) + "break"]] }]);
+t("csv: plain cells are unquoted", csv.includes("Region,Q1"));
+t("csv: a cell containing the delimiter is quoted", csv.includes('"1,204"'));
+t("csv: an embedded quote is doubled", csv.includes('"He said ""hi"""'));
+t("csv: a cell containing a newline is quoted", csv.includes('"line'));
+t("csv: single table carries no comment header", !csv.includes("# Table"));
+const csv2 = OE.csv([{ page: 1, rows: [["a"]] }, { page: 4, rows: [["b"]] }]);
+t("csv: multiple tables are labelled with their page", csv2.includes("# Table 1 (page 1)") && csv2.includes("# Table 2 (page 4)"));
+t("csv: tables are separated by a blank line", csv2.split(String.fromCharCode(13) + String.fromCharCode(10)).includes(""));
+
+// the text-only .docx is the ordinary builder fed a document with nothing but
+// paragraphs, so it must still be a valid package - and must contain no table
+const tdocx = readZip(OE.docx(textDoc));
+const tdocXml = str(tdocx.find((e) => e.name === "word/document.xml").data);
+t("txt-docx: valid package with the required parts",
+  ["[Content_Types].xml", "_rels/.rels", "word/document.xml"].every((n) => tdocx.some((e) => e.name === n)));
+t("txt-docx: carries the text", tdocXml.includes("First line of page one.") && tdocXml.includes("Page two opens here."));
+t("txt-docx: contains no table at all", !tdocXml.includes("<w:tbl>"));
+t("txt-docx: contains no drawing", !tdocXml.includes("<w:drawing>"));
+scanXml(tdocx, "txt-docx");
+
 scanXml(xz, "xlsx");
 scanXml(nz, "xlsx-figures");   // the numeric/styles package above
 scanXml(pz, "pptx");

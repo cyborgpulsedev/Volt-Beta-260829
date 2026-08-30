@@ -53,6 +53,7 @@ Rough guide on a machine with 8 GB of VRAM: a 3B model answers in seconds and us
 - **Markup** — highlights, underlines, strikethrough, notes, rectangles, redactions, in-place text editing, bookmarks
 - **Signing** — hand-drawn or typed signatures, digital signatures with RFC 3161 timestamping, password-protected exports
 - **Export** — PDF, PDF/A-1b, Word, Excel, PowerPoint, Markdown, TSV, and a portable JSON backup of your annotations
+- **Text-only export** — Word, plain text and CSV for when you want the words and nothing else: no tables, no pictures, no guess at layout, so nothing to get wrong
 - **OCR** — built in, English included, 20+ more languages downloaded on demand
 - **Pages** — add, delete, reorder by drag, insert from another PDF, with undo
 - **Voice** — read aloud with local voices, and talk to the AI with your microphone

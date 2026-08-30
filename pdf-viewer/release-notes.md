@@ -1,37 +1,32 @@
-## Volt 1.0.9
+## Volt 1.0.10
 
 Volt is a fast, private, ad-free PDF reader with AI built in — everything renders locally, and you bring your own LLM. No account, no telemetry, no upsells.
 
-> ### ⚠ Install this one by hand
->
-> Automatic updates have never worked. Every release so far downloaded itself quietly in the background and was then discarded before installing, with nothing shown to you — which is why you have had to fetch each version manually.
->
-> That is fixed here, but the fix cannot apply itself: the version you already have is the one doing the rejecting. **Download `Volt-Setup-1.0.9.exe` below and run it once.** After that, updates arrive on their own.
+**New: text-only exports.** Three additions under Export, for when you want the words and nothing else.
 
-**What was wrong.** Volt's installers were signed with a development certificate rather than a purchased one. The updater checks that a downloaded installer is signed by the same publisher, and Windows reports a self-signed certificate as untrusted — so the check failed every time, even though the publisher name matched. Beta builds are now published unsigned, which lets the updater accept them.
+- **Word document — text only (.docx)** — paragraphs in reading order. No tables, no pictures, no attempt at layout. This is the one to use when the full Word export gets your document wrong: it makes no guesses, so it has nothing to get wrong.
+- **Plain text (.txt)** — the document's text, with a rule between pages.
+- **Tables as CSV (.csv)** — detected tables in one plain file that opens in anything, no spreadsheet required. Accented characters and cells containing commas both survive.
 
-**What this changes for you.** Nothing visible. Windows SmartScreen already warned on first launch and still will: click **More info → Run anyway**. Volt still runs entirely on your machine.
+All three respect a page selection made in the Pages manager, and all three offer **Open with…** straight from the toast.
 
-**Also in this release** — everything from 1.0.7 and 1.0.8, which most people never received:
-- **Pages appear again when you jump.** In any document longer than about six pages, clicking a thumbnail five or more pages away — or pressing End — updated the page number and showed nothing at all. Scrolling and zooming would not bring it back.
-- **"Check for updates" answers.** The menu item reported an error every single time, even when a newer version was waiting.
-- **Spreadsheet exports produce numbers you can add up.** Figures with thousands separators came out as text, so `1,204` could not be summed while `987` in the same column could.
-- **Uninstalling no longer leaves PDFs pointing at a program that is gone.**
-- **Feedback reports arrive with a readable title**, from a one-line summary you write.
-- **Choose where your files go.** ⚙ Settings → *Files* sets the folder for exports and saved files, and the export dialog lets you send just one somewhere else. Worth checking: Windows often redirects Downloads into OneDrive, so your exports may have been syncing to the cloud.
+Why they exist: the existing Word and PowerPoint exports analyse every page for tables and pictures. That is what makes them good on a well-behaved document and what makes them slow and occasionally wrong on an awkward one — prose absorbed into a table it isn't part of, or minutes spent extracting images from a scan. The text-only exports skip all of it.
+
+The full Word export that reconstructs columns, tables and page breaks properly is still being built. These are the honest option in the meantime, not a replacement for it.
 
 **Highlights**
 - Fully local rendering — vendored pdf.js, works offline, even from `file://`
 - Bring your own AI — Ollama, LM Studio, or any OpenAI-compatible endpoint
 - Annotate and mark up — highlights, underlines, notes, bookmarks, rectangles, redactions, text editing
 - Sign and lock — digital signatures, RFC 3161 timestamping, password-protected exports
-- Export anything — PDF, PDF/A-1b, Word, Excel, PowerPoint, Markdown, TSV
+- Export anything — PDF, PDF/A-1b, Word, Excel, PowerPoint, Markdown, TSV, and now text-only Word, TXT and CSV
 - Built-in OCR with English bundled and 20+ more languages on demand
 - Page management — add, delete, reorder, insert from another PDF, two-page book spread
 - Read aloud with local voices, and talk to the AI with your microphone
 
 **Install**
-- **Everyone:** download `Volt-Setup-1.0.9.exe` and run it — per-user install, no admin needed. SmartScreen will warn on first launch: click "More info" → "Run anyway". This is the last version you will have to install yourself.
+- **New installs:** download `Volt-Setup-1.0.10.exe` and run it — per-user install, no admin needed. SmartScreen will warn on first launch: click "More info" → "Run anyway".
+- **Existing installs:** if you are on 1.0.9, this arrives on its own. If you are on 1.0.8 or earlier, install by hand once — automatic updates were broken before 1.0.9 and the version you have is the one that rejects them.
 
 **Requirements**
 - Windows 10 or later, 64-bit

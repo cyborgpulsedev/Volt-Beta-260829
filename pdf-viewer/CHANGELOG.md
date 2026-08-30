@@ -4,6 +4,41 @@ Each release is a `## x.y.z` section. The version banner tooltip shows the
 sections newer than the installed bundle, so a pending update tells you what
 changed before you restart.
 
+## 1.0.10
+
+**Text-only exports: Word, plain text and CSV.**
+
+The Word and PowerPoint exports run table detection, grid analysis and image
+extraction over every page. That is where their cost and their failure modes
+live: a document whose ruling lines confuse the grid pass comes out with prose
+absorbed into a table, and a large scanned file spends minutes pulling out
+pictures nobody wanted. These three promise less and always deliver it — the
+words, in reading order, page by page, with no guess at structure.
+
+- **Word document — text only (.docx)**: paragraphs and nothing else. No
+  tables, no pictures, no layout reconstruction. Reliable on any PDF, and the
+  one to reach for when the full export gets a document wrong.
+- **Plain text (.txt)**: the document's text with a `--- Page N ---` rule
+  between pages. CRLF line endings, because these land on Windows and open in
+  Notepad often enough that a run-on single line is a real complaint.
+- **Tables as CSV (.csv)**: detected tables in one plain file that opens
+  anywhere without a spreadsheet. RFC 4180 quoting, so a cell containing a
+  comma, a quote or a newline round-trips. Written with a UTF-8 BOM, without
+  which Excel reads the file as the local ANSI codepage and turns every
+  accented character into mojibake. Several tables are separated by a
+  `# Table N (page P)` comment; a single table is plain CSV with no preamble.
+
+All three honour a live Pages-manager selection, exactly like the existing
+Office exports, and all three offer **Open with…** from the toast — which is
+why `.txt` and `.csv` joined the desktop bridge's extension allowlist.
+
+- **Tests**: 19 assertions covering line survival and ordering, page marking,
+  CRLF, CSV quoting of every awkward cell, the multi-table labelling, and that
+  the text-only .docx contains no `<w:tbl>` and no `<w:drawing>` at all — a
+  regression there would most likely be the text-only path quietly acquiring
+  the table detection it exists to avoid. The smoke gate exercises all three
+  against a real document and asserts every collected line reaches the file.
+
 ## 1.0.9
 
 **Beta builds are published unsigned, so automatic updates actually install.**

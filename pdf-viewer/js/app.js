@@ -5494,6 +5494,40 @@
           const bytes = global.OfficeExport.pptx(doc);
           Utils.download(new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.presentationml.presentation" }), base + ".pptx");
           this.toast("PowerPoint exported" + (sel ? " — " + this._officeExportScope(sel) : " — tables & pictures as slides") + " · opens in PowerPoint, Google Slides & LibreOffice", "ok", false, this._openWithAction(bytes, base + ".pptx"));
+        } else if (kind === "txt-docx" || kind === "txt") {
+          /* Text-only: no table detection, no image extraction, no layout
+             reconstruction. Cheap enough to skip the "Preparing…" toast on all
+             but huge documents, and — the reason it exists — it cannot get a
+             document wrong the way the layout-preserving export can, because
+             it never guesses at structure. */
+          const sel = this._pagesSelectedForExport();
+          const doc = await global.OfficeExport.collectText(this, sel && sel.pages);
+          const scope = sel ? " — " + this._officeExportScope(sel) : "";
+          if (kind === "txt") {
+            const text = global.OfficeExport.txt(doc);
+            Utils.download(new Blob([text], { type: "text/plain" }), base + ".txt");
+            this.toast("Plain text exported" + scope, "ok", false,
+              this._openWithAction(new TextEncoder().encode(text), base + ".txt"));
+          } else {
+            const bytes = global.OfficeExport.docx(doc);
+            Utils.download(new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }), base + "-text.docx");
+            this.toast("Word document exported — text only" + scope + " · no tables or pictures", "ok", false, this._openWithAction(bytes, base + "-text.docx"));
+          }
+        } else if (kind === "csv") {
+          const sel = this._pagesSelectedForExport();
+          const tables = await global.OfficeExport.collectTables(this, sel && sel.pages);
+          if (!tables.length) {
+            this.toast("No tables detected in " + this._officeExportScope(sel, true) + " — Plain text (.txt) exports the words instead", "error");
+            return;
+          }
+          // Excel reads a CSV as the local ANSI codepage unless it sees a
+          // UTF-8 BOM, which turns every accented character into mojibake —
+          // and a mangled export is worse than no export
+          const csv = "﻿" + global.OfficeExport.csv(tables);
+          Utils.download(new Blob([csv], { type: "text/csv" }), base + ".csv");
+          this.toast(tables.length + " table" + (tables.length === 1 ? "" : "s") + " exported as CSV" +
+            (sel ? " from " + this._officeExportScope(sel) : ""), "ok", false,
+            this._openWithAction(new TextEncoder().encode(csv), base + ".csv"));
         } else if (kind === "tsv") {
           const sel = this._pagesSelectedForExport();
           const tables = await global.OfficeExport.collectTables(this, sel && sel.pages);

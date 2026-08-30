@@ -1113,6 +1113,83 @@
     return { title: (app.currentDocInfo && app.currentDocInfo.name) || "Document", pages: out };
   };
 
+  /* ── text-only exports ───────────────────────────────────────
+     The Word/PowerPoint collectors run table detection, grid analysis and
+     image extraction over every page, which is where their cost and their
+     failure modes live: a document whose ruling lines confuse the grid pass
+     comes out with prose absorbed into a table, and a huge scanned file
+     spends minutes extracting pictures nobody asked for.
+
+     These exports promise less and always deliver it. No tables, no images,
+     no layout reconstruction — the words, in reading order, page by page.
+     They are the honest option to reach for when the layout-preserving export
+     gets a document wrong, and they are what you want when the text is all
+     you were ever after. */
+
+  /** Text only: every page's lines in reading order, with text-edit
+      annotations applied. Returns the same shape OE.docx() consumes, with
+      empty tables/images, so the text-only .docx is the ordinary builder fed
+      a document that simply has nothing but paragraphs in it.
+      pages: optional array of 1-based page numbers (see collect). */
+  OE.collectText = async function (app, pages) {
+    const doc = app.currentDoc;
+    if (!doc) return null;
+    const range = (pages && pages.length) ? pages
+      : Array.from({ length: doc.numPages }, (_, i) => i + 1);
+    const edits = (global.Volt && global.Volt.Ann) ? global.Volt.Ann.list.filter((a) => a.type === "text") : [];
+    const out = [];
+    for (const p of range) {
+      if (p < 1 || p > doc.numPages) continue;
+      const page = await doc.getPage(p);
+      const tc = await page.getTextContent();
+      const items = (tc.items || []).filter((i) => i.str && i.str.trim());
+      const lines = OE.groupLines(items);
+      applyTextEdits(lines, edits.filter((e) => e.page === p));
+      out.push({ num: p, paragraphs: lines.map((l) => ({ text: l.text })), tables: [], images: [] });
+    }
+    return { title: (app.currentDocInfo && app.currentDocInfo.name) || "Document", pages: out };
+  };
+
+  /** Plain text of a collectText() document. Pages are separated by a blank
+      line and a "--- Page N ---" rule, so a reader can still tell where they
+      are without the marker being mistaken for content. */
+  OE.txt = function (doc) {
+    if (!doc || !doc.pages) return "";
+    const parts = [];
+    for (const page of doc.pages) {
+      if (parts.length) parts.push("");
+      parts.push("--- Page " + page.num + " ---", "");
+      for (const para of page.paragraphs) parts.push(para.text);
+    }
+    // CRLF: these land on Windows and get opened in Notepad often enough that
+    // bare LF showing as one run-on line is a real complaint
+    return parts.join("\r\n") + "\r\n";
+  };
+
+  /** One CSV cell, RFC 4180: quote when the value contains a comma, a quote
+      or a newline, and double any embedded quote. */
+  function csvCell(v) {
+    const s = v == null ? "" : String(v);
+    return /[",\r\n]/.test(s) ? '"' + s.split('"').join('""') + '"' : s;
+  }
+
+  /** Detected tables as one CSV file. Tables are separated by a blank line and
+      a "# Table N (page P)" comment; with a single table the file is plain
+      CSV a spreadsheet opens without a word. */
+  OE.csv = function (tables) {
+    const list = tables || [];
+    const out = [];
+    list.forEach((t, i) => {
+      const rows = t.rows || t;
+      if (list.length > 1) {
+        if (out.length) out.push("");
+        out.push(csvCell("# Table " + (i + 1) + (t.page ? " (page " + t.page + ")" : "")));
+      }
+      for (const row of rows) out.push((row || []).map(csvCell).join(","));
+    });
+    return out.join("\r\n") + "\r\n";
+  };
+
   /** Only the detected tables (for xlsx/tsv — skips image extraction).
       pages: optional array of 1-based page numbers (see collect). */
   OE.collectTables = async function (app, pages) {

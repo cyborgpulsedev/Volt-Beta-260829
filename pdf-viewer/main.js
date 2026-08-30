@@ -6491,6 +6491,29 @@ function runSmokeTest(w) {
               // String.fromCharCode keeps the probe template single-line — a
               // backslash-n escape would become a real newline in the output
               office.tsvShape = oTsv.includes(String.fromCharCode(9)) && oTsv.includes(String.fromCharCode(10));
+
+              /* ── text-only exports ──
+                 These exist to be the export that cannot go wrong, so the
+                 probe checks exactly that: the words are all present, page
+                 boundaries are marked, and the .docx carries no table or
+                 drawing at all. A regression here would most likely be the
+                 text-only path quietly acquiring the table detection it was
+                 created to avoid. */
+              const oText = await window.OfficeExport.collectText(window.Volt.App);
+              office.textPages = oText.pages.length;
+              office.textHasLines = oText.pages.some((pg) => pg.paragraphs.length > 0);
+              office.textNoTables = oText.pages.every((pg) => pg.tables.length === 0 && pg.images.length === 0);
+              const oTxt = window.OfficeExport.txt(oText);
+              office.txtBytes = oTxt.length;
+              office.txtPageMarks = oTxt.includes("--- Page 1 ---");
+              office.txtCrlf = oTxt.includes(String.fromCharCode(13) + String.fromCharCode(10));
+              // every line the collector found must survive into the file
+              office.txtKeepsEveryLine = oText.pages.every((pg) => pg.paragraphs.every((q) => oTxt.includes(q.text)));
+              const oTxtDocx = window.OfficeExport.docx(oText);
+              office.txtDocxSize = oTxtDocx.length;
+              const oCsv = window.OfficeExport.csv(oTabT.map ? [{ page: 1, rows: oTabT }] : oTabT);
+              office.csvBytes = oCsv.length;
+              office.csvRowShape = oCsv.includes(",") && oCsv.includes(String.fromCharCode(13) + String.fromCharCode(10));
               // desktop-bridge checks (temp-file writes + 'Open with…'):
               // Electron-only — browser/PWA mode has no preload bridge, so
               // these become N/A there (the detection assertions above are the
@@ -6578,6 +6601,10 @@ function runSmokeTest(w) {
               office.docxSize > 3000 && office.xlsxSize > 1500 &&
               office.pptxSize > 3000 && office.expectedSlides === 6 &&
               office.tsvShape === true && office.written === true &&
+              office.textPages > 0 && office.textHasLines === true && office.textNoTables === true &&
+              office.txtBytes > 100 && office.txtPageMarks === true && office.txtCrlf === true &&
+              office.txtKeepsEveryLine === true && office.txtDocxSize > 2000 &&
+              office.csvBytes > 10 && office.csvRowShape === true &&
               office.selAllOk === true && office.openWithOk === true && !office.error;
             ocr.allOk = ocr.engine === true && ocr.docBuilt === true && ocr.opened === true &&
               ocr.buttonShown === true && ocr.recognized === true && ocr.textLayer === true &&
@@ -7677,7 +7704,9 @@ if (!gotLock) {
       // skipped (launching Word/Excel on the test machine would be rude) and
       // only the write + path are verified.
       ipcMain.handle("volt:open-with", async (_event, name, buffer) => {
-        if (typeof name !== "string" || !/\.(docx|xlsx|pptx)$/i.test(name)) throw new Error("not an office file");
+        // txt/csv joined the list when the text-only exports landed: opening a
+        // CSV in Excel from the toast is exactly what people do with it
+        if (typeof name !== "string" || !/\.(docx|xlsx|pptx|txt|csv)$/i.test(name)) throw new Error("not an exportable file");
         const bytes = buffer instanceof Uint8Array ? buffer
           : (buffer instanceof ArrayBuffer ? new Uint8Array(buffer)
             : (buffer && buffer.buffer instanceof ArrayBuffer ? new Uint8Array(buffer.buffer) : null));
