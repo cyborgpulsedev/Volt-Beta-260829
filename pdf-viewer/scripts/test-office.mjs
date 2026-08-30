@@ -445,6 +445,51 @@ t("fonts: an unknown name still yields a usable face", !!OE.mapFont("").family);
   t("fonts: bold and italic reach the run", fx.includes("<w:b/>") && fx.includes("<w:i/>"));
 }
 
+/* -- prose is not a table --------------------------------------
+   The gap detector finds a table wherever text sits in aligned columns with a
+   gap between them, which is exactly what a two-column page of prose looks
+   like. It claimed those pages, so column ordering never saw them and a
+   two-column article exported as a two-column table with a sentence in every
+   cell. The discriminator is cell length: table cells are short, prose cells
+   are lines of running text. */
+const proseRows = [
+  ["The survey concluded that the readings", "Appendix B lists the raw figures for"],
+  ["were consistent across every station", "each station in the order they were"],
+  ["that reported during the period, and", "recorded, with corrections footnoted"],
+  ["no deviation beyond tolerance was", "beneath the table where they apply to"],
+  ["observed at any point in the run of", "more than a single reading in the set"],
+  ["measurements taken that afternoon.", "of measurements gathered that day."],
+  ["Section four discusses the margin and", "See also appendix C for the method"],
+  ["how it was arrived at in practice.", "used to derive each correction term."],
+];
+const proseLines = proseRows.map((r, i) => {
+  const tokens = [{ x: 50, x2: 280, text: r[0] }, { x: 330, x2: 550, text: r[1] }];
+  return { y: 700 - i * 12, h: 10, tokens, text: tokens.map((t2) => t2.text).join("   ") };
+});
+t("prose: a two-column article is NOT detected as a table",
+  OE.detectTables(proseLines).tables.length === 0);
+t("prose: its lines stay available to the paragraph stream",
+  OE.detectTables(proseLines).lineIndexes.size === 0);
+
+// a genuine two-column table of short values must still be found
+const valueRows = [["North", "1,204"], ["South", "987"], ["East", "2,310"], ["West", "1,455"],
+  ["Central", "876"], ["Coastal", "2,204"], ["Inland", "1,190"], ["Upland", "2,501"]];
+const valueLines = valueRows.map((r, i) => {
+  const tokens = [{ x: 50, x2: 120, text: r[0] }, { x: 330, x2: 380, text: r[1] }];
+  return { y: 700 - i * 12, h: 10, tokens, text: tokens.map((t2) => t2.text).join("   ") };
+});
+t("prose: a real two-column table of short values is still a table",
+  OE.detectTables(valueLines).tables.length === 1);
+// a mixed table - one long description column, one short value column - is a
+// table, and this is the case the guard must not swallow
+const mixedLines = valueRows.map((r, i) => {
+  const tokens = [{ x: 50, x2: 280, text: "A fairly long description of the " + r[0] + " region here" },
+                  { x: 330, x2: 380, text: r[1] }];
+  return { y: 700 - i * 12, h: 10, tokens, text: tokens.map((t2) => t2.text).join("   ") };
+});
+t("prose: one long column beside a short one is still a table",
+  OE.detectTables(mixedLines).tables.length === 1);
+
 scanXml(xz, "xlsx");
 scanXml(nz, "xlsx-figures");   // the numeric/styles package above
 scanXml(pz, "pptx");

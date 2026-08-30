@@ -1,6 +1,8 @@
-## Volt 1.0.12
+## Volt 1.0.13
 
 Volt is a fast, private, ad-free PDF reader with AI built in — everything renders locally, and you bring your own LLM. No account, no telemetry, no upsells.
+
+**Word export: two-column articles come out as text, not a table.** A two-column page was being read as a two-column table, so an article exported with a sentence trapped in every cell. Volt now tells prose from tabular data by how long the cells are — a table of short values is still a table, an article is now flowing text. Forms drawn with ruled lines still reconstruct as real tables, empty cells included.
 
 **Word export: columns and type.** Two-column documents used to export with both columns interleaved line by line — the left column's sentence, then the right column's, all the way down, unreadable. They now read down one column and then the other, the way you read them. And text keeps its typeface: a serif document exports as serif, with bold and italic preserved, instead of everything arriving in Word's default sans.
 
@@ -31,7 +33,7 @@ The full Word export that reconstructs columns, tables and page breaks properly 
 - Read aloud with local voices, and talk to the AI with your microphone
 
 **Install**
-- **New installs:** download `Volt-Setup-1.0.12.exe` and run it — per-user install, no admin needed. SmartScreen will warn on first launch: click "More info" → "Run anyway".
+- **New installs:** download `Volt-Setup-1.0.13.exe` and run it — per-user install, no admin needed. SmartScreen will warn on first launch: click "More info" → "Run anyway".
 - **Existing installs:** if you are on 1.0.9, this arrives on its own. If you are on 1.0.8 or earlier, install by hand once — automatic updates were broken before 1.0.9 and the version you have is the one that rejects them.
 
 **Requirements**

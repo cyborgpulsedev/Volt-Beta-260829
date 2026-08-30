@@ -777,6 +777,37 @@
       >= 2 columns on real gaps (spaces between words don't count);
       a table is a run of >= minRows consecutive tabular lines. Returns
       { tables: [[[cell]]], lineIndexes: Set<line index> }. */
+  /** Is this candidate actually a two-column ARTICLE?
+
+      The gap detector finds a table wherever text sits in aligned columns
+      with a real gap between them — which is exactly what a two-column page
+      of prose looks like. It claimed those pages, so the column ordering
+      never saw them and a two-column article exported as a two-column table
+      with a sentence in every cell.
+
+      Prose and tabular data separate cleanly on cell length. Table cells are
+      short: a label, a number, a date. Prose cells are lines of running text
+      that fill their column. Requiring BOTH columns to be long-form, and the
+      run to be tall, keeps genuinely long two-column tables of short values
+      safe — and a table with even one short column is still read as a table.
+      Only applies to gap-detected candidates: a table drawn with ruling lines
+      has evidence of its own and is never second-guessed. */
+  function looksLikeProse(grid) {
+    if (!grid || grid.length < 6) return false;      // too short to tell
+    const cols = grid[0].length;
+    if (cols !== 2) return false;                    // 3+ columns is not an article
+    const medianLen = (ci) => {
+      const lens = grid.map((r) => String(r[ci] || "").trim().length).filter((n) => n > 0).sort((a2, b2) => a2 - b2);
+      return lens.length ? lens[Math.floor(lens.length / 2)] : 0;
+    };
+    const PROSE_CHARS = 25;
+    if (medianLen(0) < PROSE_CHARS || medianLen(1) < PROSE_CHARS) return false;
+    // running text carries sentence punctuation and spaces; a column of long
+    // identifiers or paths does not
+    const wordy = (ci) => grid.filter((r) => (String(r[ci] || "").match(/ /g) || []).length >= 3).length;
+    return wordy(0) >= grid.length * 0.7 && wordy(1) >= grid.length * 0.7;
+  }
+
   OE.detectTables = function (linesOrItems, opts) {
     const o = opts || {};
     const minRows = o.minRows || 3;
@@ -799,11 +830,15 @@
       if (run.length >= minRows) {
         const grid = run.map((li) => split(lines[li]));
         const maxCols = Math.max(...grid.map((g) => g.length));
-        tables.push(grid.map((g) => {
+        const padded = grid.map((g) => {
           while (g.length < maxCols) g.push("");
           return g;
-        }));
-        run.forEach((li) => lineIndexes.add(li));
+        });
+        // a two-column ARTICLE is not a two-column table — see looksLikeProse
+        if (!looksLikeProse(padded)) {
+          tables.push(padded);
+          run.forEach((li) => lineIndexes.add(li));
+        }
       }
       i++;
     }

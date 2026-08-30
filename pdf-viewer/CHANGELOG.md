@@ -4,6 +4,48 @@ Each release is a `## x.y.z` section. The version banner tooltip shows the
 sections newer than the installed bundle, so a pending update tells you what
 changed before you restart.
 
+## 1.0.13
+
+**A two-column article is no longer exported as a two-column table.** Last
+gap in the Word layout work.
+
+The gap-based detector finds a table wherever text sits in aligned columns
+with a real gap between them — which is precisely the shape of a two-column
+page of prose. It claimed those pages before the column ordering added in
+1.0.12 could see them, so a two-column article came out as a table with a
+sentence in every cell.
+
+Prose and tabular data separate cleanly on cell length: table cells are a
+label, a number, a date; prose cells are lines of running text that fill their
+column. A candidate is rejected as prose only when it has exactly two columns,
+at least six rows, a median cell length of 25 characters or more in BOTH
+columns, and most cells carrying several spaces — so a long two-column table
+of short values is still a table, and one long description column beside a
+short value column is still a table. Tables drawn with ruling lines are never
+second-guessed; they have evidence of their own.
+
+Measured on a real two-column PDF: 60 paragraphs and 0 tables, where before it
+was 0 paragraphs and 1 table. Left column read out in full, then the right,
+with no line mixing the two.
+
+**Also verified rather than rebuilt:** table reconstruction from ruling lines
+already worked. A 5×7 inspection form with eight deliberately empty cells —
+the case gap detection cannot see at all — reconstructs as a 7×5 grid with
+every value in the right cell and the blanks preserved. That closes the last
+item on the layout list without new code.
+
+### Where the Word layout milestone stands
+
+Done: page geometry and margins from the source, exact per-line size and
+leading, page-break fidelity (a dense 60-page A4 report exported to 120 pages,
+now 61), column ordering, font and weight matching, prose-vs-table separation,
+ruling-line tables.
+
+Not done, and no longer obviously needed: absolutely positioned text frames.
+They were the plan for holding page count, and measuring showed page geometry
+and exact leading already achieve it at a fraction of the complexity. Worth
+revisiting only for a document where reading order and flow are not enough.
+
 ## 1.0.12
 
 **Word export: columns read in order, and the type looks like the document's.**
