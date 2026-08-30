@@ -4,6 +4,39 @@ Each release is a `## x.y.z` section. The version banner tooltip shows the
 sections newer than the installed bundle, so a pending update tells you what
 changed before you restart.
 
+## 1.0.9
+
+**Beta builds are published unsigned, so automatic updates actually install.**
+
+Every release since the beta began downloaded itself in the background and was
+then silently thrown away. electron-updater verifies a downloaded installer
+against the publisher name recorded in `app-update.yml`, and it requires
+Windows to report the signature as **Valid** — a self-signed certificate always
+reports `UnknownError`, because its root is not trusted. The publisher name
+matched perfectly and the check failed anyway, with no symptom in the UI: the
+log line `New version 1.0.x is not signed by the application owner` was the only
+trace. `VOLT_ALLOW_UNSIGNED=1` had never actually built unsigned either — it
+skipped the certificate GUARD while electron-builder went on signing from
+`CSC_LINK`, which is how the broken posture survived.
+
+Unsigned means no `publisherName` in `app-update.yml`, so the updater installs
+what it downloads. SmartScreen warns on first launch either way, and a
+self-signed identity that anyone can forge was never a real control. The day a
+commercial certificate lands, drop the flag and verification becomes meaningful
+rather than merely present.
+
+- `VOLT_ALLOW_UNSIGNED=1` now clears `CSC_LINK`, `CSC_KEY_PASSWORD` and
+  `CSC_IDENTITY_AUTO_DISCOVERY` before building, instead of only skipping the
+  guard.
+- The release refuses to finish if the build it just published still carries a
+  `publisherName` — a certificate sneaking back in would re-break updates with
+  nothing to see.
+
+**Existing installs must be updated by hand this once.** The rejection happens
+inside the copy of Volt you already have, so 1.0.8 and earlier will refuse
+1.0.9 exactly as they refused everything before it. Download and run the
+installer once; from then on updates arrive on their own.
+
 ## 1.0.8
 
 - **"Check for updates" reported an error every time**, including when a newer

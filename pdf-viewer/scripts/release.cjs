@@ -37,6 +37,7 @@
 "use strict";
 const { spawnSync } = require("node:child_process");
 const { join } = require("node:path");
+const { existsSync, readFileSync } = require("node:fs");
 require("./load-env.cjs")(); // CSC_LINK/CSC_KEY_PASSWORD from .env (env vars win)
 
 // SCRATCH UNSIGNED releases: VOLT_ALLOW_UNSIGNED=1 skips the certificate
@@ -57,9 +58,28 @@ if (!cscLink && !allowUnsigned) {
 }
 
 if (allowUnsigned) {
-  console.warn("⚠ SCRATCH UNSIGNED RELEASE (VOLT_ALLOW_UNSIGNED=1) — publishing an UNSIGNED build.\n" +
-    "   SmartScreen will warn every user and the updater's signature verification is OFF.\n" +
-    "   Feed-mechanics testing only — delete this release after verifying.");
+  /* Actually build unsigned. This flag used to skip only the GUARD while
+     electron-builder still signed from CSC_LINK, so the artifact carried a
+     self-signed certificate and app-update.yml carried its publisherName —
+     and electron-updater then REJECTED every downloaded update, because it
+     requires Windows to report the signature as Valid and a self-signed cert
+     always reports UnknownError (untrusted root). The result: an update that
+     downloaded 121 MB in the background and was silently discarded, on every
+     release, for every tester. Unsigned means NO publisherName in
+     app-update.yml, so verification is skipped and updates install.
+     SmartScreen warns either way; a self-signed identity anyone can forge was
+     never a real control. Drop this flag the day a commercial cert lands. */
+  delete process.env.CSC_LINK;
+  delete process.env.WIN_CSC_LINK;
+  delete process.env.CSC_KEY_PASSWORD;
+  delete process.env.WIN_CSC_KEY_PASSWORD;
+  process.env.CSC_IDENTITY_AUTO_DISCOVERY = "false";
+  console.warn([
+    "! UNSIGNED RELEASE (VOLT_ALLOW_UNSIGNED=1) - building with NO certificate.",
+    "  SmartScreen will warn on first launch, and the updater performs no publisher",
+    "  verification. This is the deliberate beta posture: a self-signed certificate",
+    "  made auto-update fail silently on every release.",
+  ].join("\n"));
 } else {
   // A configured cert is not enough: refuse to publish with a SELF-SIGNED
   // certificate (SmartScreen for every user + the updater rejects untrusted
@@ -100,7 +120,24 @@ if (r.status !== 0 && finish.status === 0) {
 }
 
 if (allowUnsigned) {
-  console.log("⚠ scratch unsigned build published — sign:check skipped by design.");
+  /* An unsigned release is only useful if it really is unsigned: the moment a
+     certificate sneaks back in, app-update.yml regains its publisherName and
+     electron-updater silently discards every downloaded update again — with no
+     symptom anyone would notice. Assert the posture rather than trust it. */
+  const yml = join(__dirname, "..", "dist", "win-unpacked", "resources", "app-update.yml");
+  let posture = "app-update.yml not found at " + yml;
+  if (existsSync(yml)) {
+    const text = readFileSync(yml, "utf8");
+    posture = /(^|\n)publisherName:/.test(text)
+      ? "app-update.yml still carries publisherName — updates WILL be rejected"
+      : null;
+  }
+  if (posture) {
+    console.error("❌ unsigned release is not actually unsigned: " + posture);
+    process.exit(1);
+  }
+  console.log("✓ unsigned build published — no publisherName in app-update.yml, so the");
+  console.log("  updater will accept it. sign:check skipped by design.");
   process.exit(0);
 }
 
