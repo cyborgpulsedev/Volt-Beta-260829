@@ -340,6 +340,53 @@ t("txt-docx: contains no table at all", !tdocXml.includes("<w:tbl>"));
 t("txt-docx: contains no drawing", !tdocXml.includes("<w:drawing>"));
 scanXml(tdocx, "txt-docx");
 
+/* -- Word layout: a page that holds what it held -----------------
+   The export used to reflow every document onto US Letter at Word's default
+   11pt with 1in margins, which on a dense A4 report set in 8pt came out at
+   exactly TWICE the page count - 60 pages became 120. Measured with
+   LibreOffice: 15,244 twips of content into 15,240 of usable height, four
+   twips over, so every single page spilled a line onto a second one.
+
+   These assertions pin the three things that fixed it: the section takes the
+   document's own page size, each line carries the point size and leading it
+   was set in, and nothing is added to a page that the source page did not
+   have. A regression in any of them doubles the page count again. */
+const A4 = { w: 595, h: 842 };
+const layoutDoc = {
+  title: "Dense.pdf",
+  pages: [1, 2].map((n) => ({
+    num: n, size: A4, tables: [], images: [],
+    paragraphs: Array.from({ length: 60 }, (_, i) => ({
+      text: "Line " + (i + 1) + " of page " + n, size: 8, lead: 12, x: 46, y: 780 - i * 12,
+    })),
+  })),
+};
+const lz = readZip(OE.docx(layoutDoc));
+const lx = str(lz.find((e) => e.name === "word/document.xml").data);
+const sect = /<w:pgSz w:w="(\d+)" w:h="(\d+)"/.exec(lx);
+t("layout: the section takes the document's own page size, not Letter",
+  !!sect && Number(sect[1]) === 595 * 20 && Number(sect[2]) === 842 * 20);
+t("layout: margins come from where the text sits, not a fixed inch",
+  /<w:pgMar w:top="(\d+)"/.test(lx) && Number(/<w:pgMar w:top="(\d+)"/.exec(lx)[1]) !== 1440);
+t("layout: every body line carries its own point size", lx.split('<w:sz w:val="16"/>').length - 1 >= 120);
+t("layout: leading is exact, so Word adds none of its own",
+  lx.includes('w:line="240" w:lineRule="exact"'));
+t("layout: no page label is added that the source page never had", !lx.includes("Page 1</w:t>"));
+{
+  // the arithmetic that actually decides the page count
+  const mar = /<w:pgMar w:top="(\d+)" w:right="\d+" w:bottom="(\d+)"/.exec(lx);
+  const avail = 842 * 20 - Number(mar[1]) - Number(mar[2]);
+  const lines = (lx.match(/w:line="(\d+)" w:lineRule="exact"/g) || [])
+    .map((m) => Number(/\d+/.exec(m)[0]));
+  const perPage = lines.slice(0, 60).reduce((a, b) => a + b, 0);
+  t("layout: a full source page fits inside one Word page", perPage <= avail);
+}
+t("layout: a landscape page is marked landscape", (() => {
+  const wide = readZip(OE.docx({ title: "W", pages: [{ num: 1, size: { w: 842, h: 595 }, paragraphs: [{ text: "x", size: 10, lead: 12, x: 40, y: 500 }], tables: [], images: [] }] }));
+  return str(wide.find((e) => e.name === "word/document.xml").data).includes('w:orient="landscape"');
+})());
+scanXml(lz, "docx-layout");
+
 scanXml(xz, "xlsx");
 scanXml(nz, "xlsx-figures");   // the numeric/styles package above
 scanXml(pz, "pptx");

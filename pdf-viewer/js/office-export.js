@@ -183,14 +183,43 @@
     }
     for (let pi = 0; pi < doc.pages.length; pi++) {
       const pg = doc.pages[pi];
-      if (pi > 0) body += '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
-      body += '<w:p><w:pPr><w:rPr><w:b/><w:sz w:val="24"/></w:rPr></w:pPr>' +
-        "<w:r><w:rPr><w:b/><w:sz w:val=\"24\"/></w:rPr><w:t>" + OE.xml("Page " + pg.num) + "</w:t></w:r></w:p>";
+      /* The page break and the page label both cost vertical space on EVERY
+         page, and a source page whose text already fills its height then
+         spills a line onto a second Word page — which is how a 60-page report
+         came out at exactly 120. The break paragraph is collapsed to a
+         hairline (1 twip, 1-half-point text) and the label is set tight, so
+         neither pushes the body over. */
+      if (pi > 0) {
+        body += '<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="20" w:lineRule="exact"/>' +
+          '<w:rPr><w:sz w:val="2"/></w:rPr></w:pPr>' +
+          '<w:r><w:rPr><w:sz w:val="2"/></w:rPr><w:br w:type="page"/></w:r></w:p>';
+      }
+      /* No "Page N" label. The source page did not have one, and a page whose
+         text already fills its height spills onto a second Word page the
+         moment anything is added to it — measured: 60 A4 pages declared 778pt
+         of content into 762pt of usable height, and every single one of them
+         overflowed. The page number is in the document itself where the
+         author put it; plain-text export still rules its pages, because there
+         a reader has nothing else to go on. */
       for (const para of pg.paragraphs || []) {
         const t = String(para.text || "").trim();
         if (!t) continue;
-        body += '<w:p><w:pPr><w:spacing w:after="80"/></w:pPr>' +
-          '<w:r><w:t xml:space="preserve">' + OE.xml(t) + "</w:t></w:r></w:p>";
+        /* Set each line at the size it was set in, on the leading it had.
+           Word's 11pt default over an 8pt source is half again the height per
+           line, which is what doubled a dense report's page count. lineRule
+           "exact" is what stops Word adding its own leading on top of that;
+           the floor keeps a glyph from being clipped when a line's measured
+           leading is tighter than its own size, which superscripts and rule
+           lines both produce. */
+        const sz = para.size > 3 && para.size < 200 ? para.size : 0;
+        const lead = para.lead > 0 ? Math.max(para.lead, (sz || 11) * 1.02) : 0;
+        const szTag = sz ? '<w:sz w:val="' + Math.round(sz * 2) + '"/>' : "";
+        const spacing = lead
+          ? '<w:spacing w:before="0" w:after="0" w:line="' + Math.round(lead * 20) + '" w:lineRule="exact"/>'
+          : '<w:spacing w:after="80"/>';
+        body += "<w:p><w:pPr>" + spacing + (szTag ? "<w:rPr>" + szTag + "</w:rPr>" : "") + "</w:pPr>" +
+          "<w:r>" + (szTag ? "<w:rPr>" + szTag + "</w:rPr>" : "") +
+          '<w:t xml:space="preserve">' + OE.xml(t) + "</w:t></w:r></w:p>";
       }
       for (const grid of pg.tables || []) body += docxTable(grid);
       for (const img of pg.images || []) {
@@ -203,6 +232,18 @@
           '<w:r><w:drawing>' + docxImageDrawing(img, rid, imgSeq) + "</w:drawing></w:r></w:p>";
       }
     }
+    /* The section carries ONE page size, so a mixed-size document picks the
+       size most of its pages share rather than forcing everything to Letter —
+       an A4 report reflowed onto Letter loses a line a page and gains a page
+       every sixty. Margins come from where the text actually sits. */
+    const pgs = dominantPageSize(doc.pages || []);
+    const mar = textMargins(doc.pages || [], pgs);
+    const tw = (ptv) => Math.round(ptv * 20);   // 1pt = 20 twips
+    const sectPr = '<w:sectPr><w:pgSz w:w="' + tw(pgs.w) + '" w:h="' + tw(pgs.h) + '"' +
+      (pgs.w > pgs.h ? ' w:orient="landscape"' : "") + "/>" +
+      '<w:pgMar w:top="' + tw(mar.top) + '" w:right="' + tw(mar.right) + '" w:bottom="' + tw(mar.bottom) +
+      '" w:left="' + tw(mar.left) + '" w:header="' + tw(Math.min(mar.top, 36)) +
+      '" w:footer="' + tw(Math.min(mar.bottom, 36)) + '" w:gutter="0"/></w:sectPr>';
     const documentXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
       '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" ' +
       'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" ' +
@@ -210,7 +251,7 @@
       'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" ' +
       'xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">' +
       "<w:body>" + body +
-      '<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>' +
+      sectPr +
       "</w:body></w:document>";
 
     const docRelsXml = RELS_ROOT +
@@ -1095,6 +1136,94 @@
       pages are collected (in the given order — the Pages manager's selection
       is passed here). Page numbers on the results stay the ACTUAL page
       numbers, so "Page 3" labels and table page tags remain correct. */
+  /* ── layout geometry ────────────────────────────────────────
+     A Word export that reflows the text into Letter-sized pages at Word's
+     default 11pt does not preserve much: a dense A4 report set in 8pt came
+     out at exactly twice its page count, because every line took half again
+     the height it had and the page it was flowing onto was the wrong shape.
+     Carrying three numbers per line — its point size, the leading to the next
+     line, and the page it sits on — is most of the way to a page that holds
+     what it held. */
+
+  /** The page's size in PDF points, rotation applied. */
+  OE.pageSize = function (page) {
+    try {
+      const v = page.getViewport({ scale: 1 });
+      return { w: Math.round(v.width), h: Math.round(v.height) };
+    } catch (e) {
+      const box = (page.view || [0, 0, 612, 792]);
+      return { w: Math.round(box[2] - box[0]), h: Math.round(box[3] - box[1]) };
+    }
+  };
+
+  /** One line's paragraph record: its text, the point size it was set in, the
+      distance down to the next line, and its left edge — all in PDF points,
+      which are also Word's points, so no conversion is needed beyond twips. */
+  OE.lineMetrics = function (line, next) {
+    const size = line.h > 0.5 ? line.h : 0;
+    // leading is the gap to the NEXT line's baseline; the last line of a page
+    // has none, so it borrows its own size
+    /* The last line on a page has no next line to measure against, and
+       falling back to Word's default paragraph height made it taller than the
+       line it replaced — enough, on a full page, to push the page over. Its
+       own size plus normal leading is both closer and never larger. */
+    const lead = (next && next.y != null && line.y != null && line.y - next.y > 0.5)
+      ? line.y - next.y : (size ? size * 1.15 : 0);
+    const x = line.tokens && line.tokens.length ? line.tokens[0].x : 0;
+    return { text: line.text, size, lead, x, y: line.y };
+  };
+
+  /** The size most of the document's pages share — Word sections carry ONE
+      page size, so a document that mixes them has to pick the dominant one
+      rather than force everything to Letter. */
+  function dominantPageSize(pages) {
+    const tally = new Map();
+    for (const pg of pages) {
+      if (!pg.size) continue;
+      const k = pg.size.w + "x" + pg.size.h;
+      tally.set(k, (tally.get(k) || 0) + 1);
+    }
+    let best = null, bestN = 0;
+    for (const [k, n] of tally) if (n > bestN) { best = k; bestN = n; }
+    if (!best) return { w: 612, h: 792 };
+    const [w, h] = best.split("x").map(Number);
+    return { w, h };
+  }
+
+  /** Margins that clear the text on every page, in PDF points. Derived from
+      where the text actually sits rather than assumed, so a document with a
+      narrow gutter keeps its line length instead of being squeezed. */
+  function textMargins(pages, size) {
+    let left = Infinity, top = Infinity, bottom = Infinity;
+    for (const pg of pages) {
+      for (const q of pg.paragraphs || []) {
+        if (q.x != null && q.x < left) left = q.x;
+        if (q.y != null) {
+          const t = size.h - q.y - (q.size || 10);
+          if (t < top) top = t;
+          if (q.y < bottom) bottom = q.y;
+        }
+      }
+    }
+    /* Give the text box a few points more than the ink needs. The extents
+       above are where glyphs actually sit, but a renderer wants a little more
+       than that — and the shortfall is tiny and fatal: measured at 15,244
+       twips of content into 15,240 of usable height, four twips over, which
+       spilled every single page onto a second one. SLACK buys the rounding
+       back. */
+    const SLACK = 3;   // points, off each derived margin
+    const clamp = (v, lo, hi) => (Number.isFinite(v) ? Math.max(lo, Math.min(hi, v - SLACK)) : lo);
+    // never below 18pt (a quarter inch): a zero margin makes Word drop content
+    // into the unprintable area, and some printers refuse the file outright
+    return {
+      left: clamp(left, 18, size.w / 3),
+      right: clamp(left, 18, size.w / 3),   // mirror the left edge; the right
+                                            // ragged edge is not a reliable margin
+      top: clamp(top, 18, size.h / 3),
+      bottom: clamp(bottom, 18, size.h / 3),
+    };
+  }
+
   OE.collect = async function (app, pages) {
     const doc = app.currentDoc;
     if (!doc) return null;
@@ -1106,9 +1235,10 @@
       if (p < 1 || p > doc.numPages) continue;
       const page = await doc.getPage(p);
       const pt = await pageTables(page, edits.filter((e) => e.page === p));
-      const paragraphs = pt.lines.filter((l, i) => !pt.lineIndexes.has(i)).map((l) => ({ text: l.text }));
+      const kept = pt.lines.filter((l, i) => !pt.lineIndexes.has(i));
+      const paragraphs = kept.map((l, i) => OE.lineMetrics(l, kept[i + 1]));
       const images = await OE.detectImages(page, pt.ops);
-      out.push({ num: p, paragraphs, tables: pt.tables, images });
+      out.push({ num: p, size: OE.pageSize(page), paragraphs, tables: pt.tables, images });
     }
     return { title: (app.currentDocInfo && app.currentDocInfo.name) || "Document", pages: out };
   };
@@ -1145,7 +1275,8 @@
       const items = (tc.items || []).filter((i) => i.str && i.str.trim());
       const lines = OE.groupLines(items);
       applyTextEdits(lines, edits.filter((e) => e.page === p));
-      out.push({ num: p, paragraphs: lines.map((l) => ({ text: l.text })), tables: [], images: [] });
+      out.push({ num: p, size: OE.pageSize(page), tables: [], images: [],
+        paragraphs: lines.map((l, i) => OE.lineMetrics(l, lines[i + 1])) });
     }
     return { title: (app.currentDocInfo && app.currentDocInfo.name) || "Document", pages: out };
   };

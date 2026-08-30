@@ -4,6 +4,46 @@ Each release is a `## x.y.z` section. The version banner tooltip shows the
 sections newer than the installed bundle, so a pending update tells you what
 changed before you restart.
 
+## 1.0.11
+
+**Word export: a page holds what it held.** First slice of the layout work.
+
+The export reflowed every document onto US Letter at Word's default 11pt with
+one-inch margins, whatever the source actually was. On a dense A4 report set in
+8pt that came out at exactly twice the page count — 60 pages became 120 — and
+the same shape of failure is what turned a 207-page document into 471.
+
+Measured with LibreOffice rather than guessed at: each source page declared
+15,244 twips of content into 15,240 twips of usable height. **Four twips over**,
+so every single page spilled one line onto a second page. Three changes close
+it, and the same 60-page document now exports to 61 pages.
+
+- **The section takes the document's own page size**, including landscape, so
+  A4 stays A4. A mixed-size document uses the size most of its pages share,
+  because a Word section carries exactly one.
+- **Margins come from where the text actually sits**, with three points of
+  slack — the measured extents are where glyphs are, and a renderer wants
+  slightly more than that. The shortfall was tiny and total.
+- **Every line carries the point size and leading it was set in**,
+  `lineRule="exact"` so Word adds none of its own. An 8pt line no longer
+  occupies 11pt of height. A line at the foot of a page, which has no next
+  line to measure against, uses its own size rather than falling back to
+  Word's default paragraph height — which was taller than the line it
+  replaced, and on a full page that alone was enough to spill it.
+- **The "Page N" label is gone** from the Word export. The source page never
+  had one, and adding anything to a page whose text already fills it costs a
+  whole extra page. Plain-text export still rules its pages, because there a
+  reader has nothing else to go on.
+
+Still to come in this milestone: column detection, table reconstruction from
+ruling lines, and font matching. Line-level geometry — size, leading, left
+edge — is now carried through the collectors, which is what those need.
+
+- **Tests**: seven assertions pin the page size, the derived margins, per-line
+  sizing, exact leading, the absence of the label, landscape marking, and —
+  the one that actually decides it — that a full source page's declared line
+  heights sum to less than the usable page height.
+
 ## 1.0.10
 
 **Text-only exports: Word, plain text and CSV.**
