@@ -82,6 +82,27 @@
         "rfc3161TimeStampServer": "http://timestamp.digicert.com"
       }
     },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon-512.png",
+      "category": "Office",
+      "synopsis": "Fast, private, ad-free PDF reader with AI built in",
+      "description": "Read, mark up, sign and interrogate a PDF without anything leaving the machine unless you choose it. Bring your own local LLM.",
+      "artifactName": "Volt-${version}-${arch}.${ext}",
+      "desktop": {
+        "entry": {
+          "MimeType": "application/pdf",
+          "Keywords": "pdf;reader;annotate;ocr;ai"
+        }
+      }
+    },
     "nsis": {
       "oneClick": false,
       "perMachine": false,

@@ -35,6 +35,7 @@ const BETA_EXCLUDE = [
      beta repo is a download channel; building happens in the private one. */
   ".github/workflows/ci.yml",
   ".github/workflows/release.yml",
+  ".github/workflows/linux.yml",
 
   "assets/Volt Design Set.png",
   "assets/volt-icon-black.png",
