@@ -4,6 +4,38 @@ Each release is a `## x.y.z` section. The version banner tooltip shows the
 sections newer than the installed bundle, so a pending update tells you what
 changed before you restart.
 
+## 1.0.17
+
+**The text tool.** A tester reported it "didn't do anything". Three separate
+problems were behind that.
+
+- **On a scanned page it was silently inert.** The tool works by hitting a
+  line in the page's text layer, and a scanned document has no text layer at
+  all — so clicking visible words found nothing, opened nothing and said
+  nothing, which is indistinguishable from a broken button. It now says the
+  page looks scanned and points at Tools → OCR, after which the tool works on
+  exactly those documents.
+- **The cover box was too narrow, so the original showed through.** It was
+  sized from the text layer's span box, which measured about 91pt for a
+  heading whose glyphs are nearer 158pt — replacing "Quarterly Results" left
+  "esults" sitting beside the new words. The cover is now measured with the
+  real font, and is at least as wide as whatever it has to hide.
+- **Overflow was painted across the rest of the page.** A replacement longer
+  than its line wrapped onto the FOLLOWING lines and drew a cover over each,
+  so editing a heading put the second word inside a table, on top of an
+  unrelated cell. Replacements now shrink to fit the line they replace and
+  nothing outside that line is touched. The type scales down to a 4pt floor;
+  below that it stops shrinking rather than becoming unreadable.
+- **Worth knowing:** a text edit COVERS the original glyphs, it does not
+  remove them. The old wording is still in the file and still searchable. Use
+  Redact when the point is that the original must be gone.
+- **Tests**: seven assertions pin the fit arithmetic, and a new smoke probe
+  reads the exported page's own content streams back — the replacement
+  reaches the file, exactly ONE cover box is drawn, and the type really did
+  shrink. That last combination is the gap this bug lived in: every other
+  check reads the DOM, where the preview looked correct while the saved file
+  was wrong.
+
 ## 1.0.16
 
 **Volt can open password-protected PDFs, and the ones it makes are now

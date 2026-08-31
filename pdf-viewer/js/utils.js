@@ -854,6 +854,38 @@
       return { key: fileKey, O, U, OE, UE, Perms, P };
     },
 
+    /* ── fitting replacement text to the line it replaces ────────
+       A text edit used to WRAP a too-long replacement onto the following
+       lines of the page and paint a cover box over each — so editing a
+       heading could scribble the overflow across a table row that had
+       nothing to do with it. Shrinking the type keeps the edit inside the
+       line it belongs to, and nothing else on the page is touched.
+
+       Pure arithmetic, kept here so it can be tested without a PDF: glyph
+       width scales linearly with point size, so one measurement at 1pt is
+       enough to solve for the largest size that fits. */
+
+    /** The point size at which `text` fits `maxWidth`, never larger than
+        `startSize` and never below `minSize`.
+        widthAt1pt: the text's width when set at 1pt in the chosen font.
+        Returns { size, fits } — fits:false means even minSize overflows, so
+        the caller can decide whether to accept the overhang. */
+    fitTextSize(widthAt1pt, maxWidth, startSize, minSize) {
+      const w1 = Number(widthAt1pt);
+      const max = Number(maxWidth);
+      const start = Number(startSize);
+      const floor = Number(minSize) || 4;
+      // no width to fit into, or an empty string: keep the size asked for
+      if (!(w1 > 0) || !(max > 0) || !(start > 0)) return { size: start || floor, fits: true };
+      if (w1 * start <= max) return { size: start, fits: true };
+      const ideal = max / w1;
+      if (ideal >= floor) {
+        // round DOWN to a tenth: rounding up would put it back over the edge
+        return { size: Math.floor(ideal * 10) / 10, fits: true };
+      }
+      return { size: floor, fits: false };
+    },
+
     /** The per-object encryption key (Algorithm 1, R=2): first 10 bytes of
         MD5(encryption key + object number LE + generation number LE). */
     _pdfObjectKey(key, objNum, genNum) {

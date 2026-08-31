@@ -6662,6 +6662,99 @@ function runSmokeTest(w) {
                synthesise one, but pdf.js, Chrome and Preview will not, so a
                markup annotation without /AP is simply invisible to most of the
                people it was written for. */
+            /* ── text edit: what reaches the FILE ──
+               The text tool's on-screen preview was right while the exported
+               PDF was wrong, which is the one combination no existing check
+               could see — every other assertion here reads the DOM. A user
+               replaced a heading, watched the page update, saved, and found
+               the saved file had the old text still showing beside the new
+               one and the overflow painted across a table row underneath.
+
+               So this probe asserts the bytes. It makes an edit whose
+               replacement is far LONGER than the line it replaces — the case
+               that used to wrap onto following lines — and reads the page's
+               own content stream back out. */
+            const textEdit = { error: null };
+            try {
+              const A6 = window.Volt.App;
+              const An6 = window.Volt.Ann;
+              const L6 = window.PDFLib;
+              const sleep6 = (ms) => new Promise((r) => setTimeout(r, ms));
+              const saved6 = An6.list.slice();
+              An6.list.length = 0;
+
+              const span6 = document.querySelector(".page-text-layer span");
+              textEdit.hasSpan = !!span6;
+              const wrap6 = span6 && span6.closest(".page-wrap");
+              const box6 = (span6 && wrap6) ? An6._spanBboxPdf(span6, wrap6) : null;
+              const original = span6 ? span6.textContent : "";
+              // deliberately much longer than the line it replaces
+              const replacement = "REPLACEMENTTEXTFARLONGERTHANTHEORIGINALLINEITSTANDSIN";
+              An6.list.push({
+                id: "probe-text", type: "text", page: 1, spanIndex: 0,
+                original, origRect: box6, text: replacement,
+                size: 16, color: "#111827", origFontPs: "Helvetica",
+              });
+              const bytes6 = await An6.toAnnotatedPdf({ flatten: true });
+              An6.list.length = 0;
+              for (const a of saved6) An6.list.push(a);
+
+              const doc6 = await L6.PDFDocument.load(bytes6);
+              const page6 = doc6.getPage(0);
+              /* A page's content is an ARRAY of streams, and pdf-lib appends
+                 its drawing as further entries rather than rewriting the
+                 first — reading only stream 0 returns "q" and sees nothing. */
+              const contents6 = page6.node.Contents();
+              const nStreams = typeof contents6.size === "function" ? contents6.size() : 1;
+              let stream = "";
+              for (let si = 0; si < nStreams; si++) {
+                const raw = typeof contents6.lookup === "function" ? contents6.lookup(si) : contents6;
+                try {
+                  const decoded = L6.decodePDFRawStream(raw).decode();
+                  for (let i = 0; i < decoded.length; i++) stream += String.fromCharCode(decoded[i]);
+                } catch (e) { /* an undecodable stream contributes nothing */ }
+              }
+              textEdit.streamBytes = stream.length;
+
+              // the replacement reaches the file — as a literal or as hex
+              let hex = "";
+              for (let i = 0; i < replacement.length; i++) {
+                hex += replacement.charCodeAt(i).toString(16).padStart(2, "0");
+              }
+              textEdit.replacementInFile = stream.indexOf(replacement) !== -1 ||
+                stream.toLowerCase().indexOf(hex) !== -1;
+
+              /* EXACTLY ONE cover box. Shrinking keeps the edit on its own
+                 line; the old wrapping drew a cover and a text run per wrapped
+                 line, and those extra ones landed on unrelated content. */
+              /* EXACTLY ONE cover box. Shrinking keeps the edit on its own
+                 line; the old wrapping drew a cover and a text run per wrapped
+                 line, and those extra ones landed on unrelated content.
+                 String splits rather than regex literals: this probe is
+                 injected as a template literal, which cooks the escapes out of
+                 a regex and leaves a broken one behind. */
+              const covers = stream.split("1 1 1 rg").length - 1;
+              textEdit.coverBoxes = covers;
+              textEdit.singleCover = covers === 1;
+
+              // the type shrank rather than overflowing: the drawn size must be
+              // below the 16pt asked for, the replacement being far too long
+              const sizes = [];
+              const chunks = stream.split(" Tf");
+              for (let i = 0; i < chunks.length - 1; i++) {
+                const parts = chunks[i].trim().split(" ").filter(Boolean);
+                const n = parseFloat(parts[parts.length - 1]);
+                if (n > 0) sizes.push(n);
+              }
+              textEdit.drawnSizes = sizes.slice(0, 6);
+              textEdit.shrank = sizes.some((z) => z < 16);
+
+              textEdit.allOk = textEdit.hasSpan === true && textEdit.replacementInFile === true &&
+                textEdit.singleCover === true && textEdit.shrank === true &&
+                textEdit.streamBytes > 100;
+              await sleep6(20);
+            } catch (e) { textEdit.error = String((e && e.message) || e); textEdit.allOk = false; }
+
             const annObj = { error: null };
             try {
               const A5 = window.Volt.App;
@@ -7328,7 +7421,7 @@ function runSmokeTest(w) {
               bmProbe.outlineJump === true && bmProbe.outlineSync === true &&
               bmProbe.outlineGone === true && !bmProbe.error;
             return {
-              ok: hiddenOk && visibleOk && vendorBootErrors.allOk && modal.allOk && modalCycle.allOk && helpC.allOk && setup.allOk && watch.allOk && fpStage.allOk && rs.allOk && rurl.allOk && tlMove.allOk && lineSel.allOk && notesDel.allOk && voice.allOk && boot.allOk && dup.allOk && nudge.allOk && rotArea.allOk && sizeBadge.allOk && rectTool.allOk && pageMgr.allOk && swCache.allOk && htmlCache.allOk && verBanner.allOk && aboutModal.allOk && ocr.allOk && office.allOk && isoProbe.allOk && signProbe.allOk && spreadProbe.allOk && bmProbe.allOk && feedbackProbe.allOk && longDoc.allOk && annObj.allOk,
+              ok: hiddenOk && visibleOk && vendorBootErrors.allOk && modal.allOk && modalCycle.allOk && helpC.allOk && setup.allOk && watch.allOk && fpStage.allOk && rs.allOk && rurl.allOk && tlMove.allOk && lineSel.allOk && notesDel.allOk && voice.allOk && boot.allOk && dup.allOk && nudge.allOk && rotArea.allOk && sizeBadge.allOk && rectTool.allOk && pageMgr.allOk && swCache.allOk && htmlCache.allOk && verBanner.allOk && aboutModal.allOk && ocr.allOk && office.allOk && isoProbe.allOk && signProbe.allOk && spreadProbe.allOk && bmProbe.allOk && feedbackProbe.allOk && longDoc.allOk && annObj.allOk && textEdit.allOk,
               voice,
               bootstrap: boot,
               ocr,
@@ -7357,6 +7450,7 @@ function runSmokeTest(w) {
               indexHtmlCache: htmlCache,
               versionBanner: verBanner,
               aboutModal,
+              textEdit,
               annObj,
               isoProbe,
               signProbe,

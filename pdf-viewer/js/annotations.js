@@ -315,7 +315,20 @@
       // re-enables span pointer events that annotating normally disables).
       if (this.mode === "text") {
         const span = e.target && e.target.closest ? e.target.closest(".page-text-layer span") : null;
-        if (span && span._voltEditable !== false) this._openTextEditor(span, wrap);
+        if (span) { this._openTextEditor(span, wrap); return; }
+        /* Nothing was hit. On a scanned page there IS no text to hit — the
+           words are pixels — and the tool used to do nothing at all and say
+           nothing, which is indistinguishable from a broken button. Say which
+           of the two it is, and where OCR is, since OCR makes the tool work
+           on exactly these documents. */
+        const layer = wrap.querySelector(".page-text-layer");
+        const hasText = !!(layer && layer.querySelector("span"));
+        const app = this._app();
+        if (!hasText) {
+          app.toast("There's no text on this page to edit — it looks scanned. Run Tools → OCR first, then the text tool can edit what it recognises.", "error", true);
+        } else {
+          app.toast("Click directly on a line of text to edit it", "ok");
+        }
         return;
       }
       e.preventDefault();
@@ -2986,37 +2999,53 @@
           opacity: 0.95,
         });
       } else if (ann.type === "text" && (ann.origRect || (ann.wrap && ann.wrap.length))) {
-        // text edit: cover the original glyphs with the page background, then
-        // draw the replacement with the matched/selected standard font — the
-        // same cover + new text the on-screen layer shows. Wrapped edits
-        // (replacement longer than the line) draw one cover + text per line.
+        /* Cover the original glyphs, then draw the replacement at a size that
+           fits the line it replaces.
+
+           This used to WRAP a too-long replacement onto the following lines
+           and paint a cover box over each, which meant editing a heading
+           could scribble the overflow across a table row underneath it. It
+           also sized the cover from the text layer's span box, which measured
+           narrower than the glyphs actually drawn — so the tail of the
+           original stayed visible beside the new words.
+
+           Both are fixed by measuring with the real font instead of the DOM:
+           pdf-lib gives the true width of the original AND the replacement at
+           any size, so the cover is at least as wide as whatever it has to
+           hide, and the type shrinks until the replacement fits on one line.
+           Nothing outside the edited line is ever touched. */
         const pad = 1.5;
-        const size = Math.max(4, Math.min(200, Number(ann.size) || 11));
+        const wanted = Math.max(4, Math.min(200, Number(ann.size) || 11));
         const f = await this._standardFontFor(ann, pdf);
         const col = this._hexToRgb(ann.color || "#111827");
-        const wrapLines = (ann.wrap && ann.wrap.length) ? ann.wrap : null;
-        if (wrapLines) {
-          for (const ln of wrapLines) {
-            page.drawRectangle({ x: ln.x - pad, y: ln.y - pad, width: ln.w + pad * 2, height: ln.h + pad * 2, color: rgb(1, 1, 1) });
-            page.drawText(String(ln.text || ""), {
-              x: ln.x,
-              y: ln.y + (ln.h - size) / 2 + size * 0.72,
-              size,
-              font: f,
-              color: rgb(col.r, col.g, col.b),
-            });
-          }
-        } else {
-          const r = ann.origRect;
-          page.drawRectangle({ x: r.x - pad, y: r.y - pad, width: r.w + pad * 2, height: r.h + pad * 2, color: rgb(1, 1, 1) });
-          page.drawText(String(ann.text || "").replace(/\s*\n+\s*/g, " ").trim() || String(ann.original || ""), {
-            x: r.x,
-            y: r.y + (r.h - size) / 2 + size * 0.72,
-            size,
-            font: f,
-            color: rgb(col.r, col.g, col.b),
-          });
-        }
+        const newText = String(ann.text || "").split(/\s*\n+\s*/).join(" ").trim() || String(ann.original || "");
+        // a stored edit from before this change may still carry wrap lines;
+        // its first line's box is the line that was edited
+        const r = ann.origRect || { x: ann.wrap[0].x, y: ann.wrap[0].y, w: ann.wrap[0].w, h: ann.wrap[0].h };
+
+        const widthAt = (t, sz) => {
+          try { return f.widthOfTextAtSize(String(t), sz); } catch (e) { return 0; }
+        };
+        // the cover must hide the ORIGINAL, and the span box has been seen to
+        // under-measure it, so take whichever is wider
+        const origWidth = ann.original ? widthAt(ann.original, wanted) : 0;
+        const coverW = Math.max(Number(r.w) || 0, origWidth);
+        // solve for the size that fits, from one measurement at 1pt
+        const fit = Utils.fitTextSize(widthAt(newText, 1), coverW, wanted, 4);
+        const size = fit.size;
+
+        page.drawRectangle({
+          x: r.x - pad, y: r.y - pad,
+          width: coverW + pad * 2, height: (Number(r.h) || wanted) + pad * 2,
+          color: rgb(1, 1, 1),
+        });
+        page.drawText(newText, {
+          x: r.x,
+          y: r.y + ((Number(r.h) || wanted) - size) / 2 + size * 0.72,
+          size,
+          font: f,
+          color: rgb(col.r, col.g, col.b),
+        });
       } else if (ann.type === "form" && ann.rect) {
         await this._burnFormField(pdf, page, ann, helv);
       } else if (ann.type === "redact" && ann.rect) {

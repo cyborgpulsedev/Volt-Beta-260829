@@ -1,6 +1,10 @@
-## Volt 1.0.16
+## Volt 1.0.17
 
 Volt is a fast, private, ad-free PDF reader with AI built in — everything renders locally, and you bring your own LLM. No account, no telemetry, no upsells.
+
+**The text tool works properly.** Three things were wrong with it. On a scanned page it did nothing at all and said nothing — it now tells you the page looks scanned and points you at OCR, after which editing works. When it did edit, the white box covering the old text was too small, so the tail of the original stayed visible beside your new words. And if your replacement was longer than the line, the overflow was painted across whatever was below it — a heading edit could scribble into a table. Replacements now shrink to fit their own line and nothing else on the page is touched.
+
+One thing worth knowing: editing text covers the original rather than deleting it, so the old wording is still in the file and still searchable. Use Redact when it has to be gone.
 
 **Volt can open password-protected PDFs.** It could make them and then refuse to open one — including its own — with no way to type a password. Now it asks.
 
@@ -47,7 +51,7 @@ The full Word export that reconstructs columns, tables and page breaks properly 
 - Read aloud with local voices, and talk to the AI with your microphone
 
 **Install**
-- **New installs:** download `Volt-Setup-1.0.16.exe` and run it — per-user install, no admin needed. SmartScreen will warn on first launch: click "More info" → "Run anyway".
+- **New installs:** download `Volt-Setup-1.0.17.exe` and run it — per-user install, no admin needed. SmartScreen will warn on first launch: click "More info" → "Run anyway".
 - **Existing installs:** if you are on 1.0.9, this arrives on its own. If you are on 1.0.8 or earlier, install by hand once — automatic updates were broken before 1.0.9 and the version you have is the one that rejects them.
 
 **Requirements**

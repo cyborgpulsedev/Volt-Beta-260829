@@ -551,6 +551,34 @@ t("injectPdfTrailerId: RANDOM derives a 32-hex id from the source", (() => {
   return !!m;
 })());
 
+/* -- fitting replacement text to the line it replaces ------------
+   A text edit used to wrap a too-long replacement onto the FOLLOWING lines of
+   the page and cover each one, so editing a heading could paint the overflow
+   across a table row beneath it. It shrinks to fit now, and these pin the
+   arithmetic: glyph width scales linearly with point size, so one measurement
+   at 1pt decides the largest size that fits. */
+t("fit: text that already fits keeps its size", (() => {
+  const r = U.fitTextSize(0.5, 100, 12, 4);
+  return r.size === 12 && r.fits === true;
+})());
+t("fit: too-wide text shrinks to fit exactly", (() => {
+  const r = U.fitTextSize(10, 100, 16, 4);
+  return r.size === 10 && r.fits === true;
+})());
+t("fit: the shrunk size never exceeds the width", (() => {
+  const w1 = 7.3, max = 100;
+  const r = U.fitTextSize(w1, max, 40, 4);
+  return w1 * r.size <= max;
+})());
+t("fit: never grows text smaller than its space", U.fitTextSize(1, 1000, 9, 4).size === 9);
+t("fit: stops at the floor and says it does not fit", (() => {
+  const r = U.fitTextSize(50, 100, 16, 4);
+  return r.size === 4 && r.fits === false;
+})());
+t("fit: zero width or empty space keeps the size asked for",
+  U.fitTextSize(0, 100, 11, 4).size === 11 && U.fitTextSize(5, 0, 11, 4).size === 11);
+t("fit: a missing floor still yields a usable size", U.fitTextSize(50, 100, 16, undefined).size === 4);
+
 /* -- the updater contract --------------------------------------
    "Check for updates" reported an error for every check, including ones where
    a newer release really was on the feed, because the handler branched on
