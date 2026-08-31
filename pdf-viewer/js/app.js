@@ -949,7 +949,15 @@
        Empty by default, and the button stays hidden while it is: a button
        that cannot work is worse than no button, and a broken send loses the
        report the person just typed. Set it to the relay's POST endpoint to
-       turn the feature on. */
+       turn the feature on.
+
+       The relay MUST send CORS headers. This page is served from
+       http://127.0.0.1:<port>, so a POST to any other host is cross-origin
+       and the browser blocks it unless the endpoint answers the preflight
+       with Access-Control-Allow-Origin — the failure looks like a bare
+       "Failed to fetch" and says nothing about CORS. Relays built for
+       browser forms (Web3Forms, Formspree) do this; a hand-rolled endpoint
+       will not until you add it. */
     FEEDBACK_RELAY: "",
 
     /** Post the report to the relay. Resolves true on success. Anything else
