@@ -725,6 +725,135 @@
       return { O, U, P, key };
     },
 
+    /* ── AES-256 encryption (PDF 2.0 / Acrobat X, V=5 R=6) ───────
+       The original lock wrote V=1 R=2: RC4 with a 40-bit key. That is the
+       weakest scheme the format defines, deprecated since PDF 1.4 in 2001 and
+       recoverable in seconds by tools anyone can download — which made
+       "password-protect the exported file" mean considerably less than it
+       sounds. R=6 is AES-256 with a SHA-2 based key derivation, and the
+       permission bits are signed into the file rather than merely stated.
+
+       WebCrypto only offers padded CBC, so the fixed-length steps below
+       encrypt and then drop the padding block. Every one of them is a whole
+       number of blocks, so the bytes before that block are exactly what an
+       unpadded cipher would have produced. */
+
+    _subtle() {
+      const c = (typeof crypto !== "undefined" && crypto.subtle) ? crypto.subtle : null;
+      if (!c) throw new Error("AES-256 encryption needs WebCrypto (crypto.subtle)");
+      return c;
+    },
+
+    async _sha2(bits, bytes) {
+      const d = await this._subtle().digest("SHA-" + bits, bytes);
+      return new Uint8Array(d);
+    },
+
+    /** AES-CBC with the trailing PKCS#7 block removed — the raw transform the
+        PDF algorithms are written against. `data` must be a multiple of 16. */
+    async _aesCbcRaw(keyBytes, iv, data) {
+      const k = await this._subtle().importKey("raw", keyBytes, { name: "AES-CBC" }, false, ["encrypt"]);
+      const out = new Uint8Array(await this._subtle().encrypt({ name: "AES-CBC", iv }, k, data));
+      return out.slice(0, out.length - 16);
+    },
+
+    /** AES-CBC as PDF stores it: a random IV, then the padded ciphertext. */
+    async _aesCbcWithIv(keyBytes, data) {
+      const iv = new Uint8Array(16);
+      crypto.getRandomValues(iv);
+      const k = await this._subtle().importKey("raw", keyBytes, { name: "AES-CBC" }, false, ["encrypt"]);
+      const ct = new Uint8Array(await this._subtle().encrypt({ name: "AES-CBC", iv }, k, data));
+      const out = new Uint8Array(16 + ct.length);
+      out.set(iv); out.set(ct, 16);
+      return out;
+    },
+
+    /** ISO 32000-2 Algorithm 2.B — the hardened hash behind R=6. Sixty-four
+        rounds minimum, then it keeps going until the last byte of the round's
+        ciphertext falls at or below round-32: a deliberately serial,
+        memory-touching loop that makes guessing passwords expensive. */
+    async _pdfHash2B(pwBytes, salt, udata) {
+      const cat = (...arrs) => {
+        let n = 0; for (const a of arrs) n += a.length;
+        const o = new Uint8Array(n); let i = 0;
+        for (const a of arrs) { o.set(a, i); i += a.length; }
+        return o;
+      };
+      const u = udata || new Uint8Array(0);
+      let K = await this._sha2(256, cat(pwBytes, salt, u));
+      for (let round = 0; ; round++) {
+        const block = cat(pwBytes, K, u);
+        const K1 = new Uint8Array(block.length * 64);
+        for (let i = 0; i < 64; i++) K1.set(block, i * block.length);
+        const E = await this._aesCbcRaw(K.slice(0, 16), K.slice(16, 32), K1);
+        let sum = 0;
+        for (let i = 0; i < 16; i++) sum += E[i];
+        const mod = sum % 3;
+        K = await this._sha2(mod === 0 ? 256 : mod === 1 ? 384 : 512, E);
+        if (round >= 63 && E[E.length - 1] <= round - 31) break;
+      }
+      return K.slice(0, 32);
+    },
+
+    /** Everything the /Encrypt dictionary needs for V=5 R=6, plus the file
+        encryption key every string and stream is encrypted with. Unlike R=2
+        the key does not depend on the document /ID, so nothing here has to
+        agree with the trailer. */
+    async pdfSecurityKeysR6(userPassword, ownerPassword, perms) {
+      perms = perms || {};
+      // the permission bits are the same in every revision: a CLEARED bit
+      // forbids, and the reserved bits are all 1
+      let P = 0xffffffff;
+      if (!perms.printing) P &= ~4;
+      if (!perms.modifying) P &= ~8;
+      if (!perms.copying) P &= ~16;
+      if (!perms.annotations) P &= ~32;
+      P = P | 0;   // signed: /P is written as a signed 32-bit integer
+
+      const enc = new TextEncoder();
+      // R=6 passwords are UTF-8, capped at 127 bytes (SASLprep in the spec;
+      // for the ASCII passwords a dialog produces this is the same thing)
+      const pw = (v) => enc.encode(String(v == null ? "" : v)).slice(0, 127);
+      const userPw = pw(userPassword);
+      const ownerPw = String(ownerPassword == null ? "" : ownerPassword).length
+        ? pw(ownerPassword) : userPw;   // no owner password → the user's is both
+
+      const fileKey = new Uint8Array(32);
+      crypto.getRandomValues(fileKey);
+      const rnd = (n) => { const b = new Uint8Array(n); crypto.getRandomValues(b); return b; };
+      const ZERO_IV = new Uint8Array(16);
+
+      // Algorithm 8 — /U and /UE
+      const uVal = rnd(8), uKeySalt = rnd(8);
+      const uHash = await this._pdfHash2B(userPw, uVal, null);
+      const U = new Uint8Array(48);
+      U.set(uHash); U.set(uVal, 32); U.set(uKeySalt, 40);
+      const uInter = await this._pdfHash2B(userPw, uKeySalt, null);
+      const UE = await this._aesCbcRaw(uInter, ZERO_IV, fileKey);
+
+      // Algorithm 9 — /O and /OE, which hash the 48-byte /U as extra input
+      const oVal = rnd(8), oKeySalt = rnd(8);
+      const oHash = await this._pdfHash2B(ownerPw, oVal, U);
+      const O = new Uint8Array(48);
+      O.set(oHash); O.set(oVal, 32); O.set(oKeySalt, 40);
+      const oInter = await this._pdfHash2B(ownerPw, oKeySalt, U);
+      const OE = await this._aesCbcRaw(oInter, ZERO_IV, fileKey);
+
+      // Algorithm 10 — /Perms. The permission bits encrypted with the file
+      // key, so a reader can tell they were not edited after the fact; "adb"
+      // is the spec's magic marker.
+      const permBlock = new Uint8Array(16);
+      permBlock[0] = P & 255; permBlock[1] = (P >> 8) & 255;
+      permBlock[2] = (P >> 16) & 255; permBlock[3] = (P >> 24) & 255;
+      permBlock[4] = 0xff; permBlock[5] = 0xff; permBlock[6] = 0xff; permBlock[7] = 0xff;
+      permBlock[8] = 0x54;                                   // 'T' — metadata encrypted
+      permBlock[9] = 0x61; permBlock[10] = 0x64; permBlock[11] = 0x62;   // 'a','d','b'
+      permBlock.set(rnd(4), 12);
+      const Perms = await this._aesCbcRaw(fileKey, ZERO_IV, permBlock);
+
+      return { key: fileKey, O, U, OE, UE, Perms, P };
+    },
+
     /** The per-object encryption key (Algorithm 1, R=2): first 10 bytes of
         MD5(encryption key + object number LE + generation number LE). */
     _pdfObjectKey(key, objNum, genNum) {

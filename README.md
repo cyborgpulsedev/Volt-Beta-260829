@@ -51,7 +51,7 @@ Rough guide on a machine with 8 GB of VRAM: a 3B model answers in seconds and us
 
 - **Reading** — vendored pdf.js, continuous / single-page / two-page spread, fit-width and fit-page, rotation, and three skins (Neon, Paper, Quiet)
 - **Markup** — highlights, underlines, strikethrough, notes, rectangles, redactions, in-place text editing, bookmarks. Exported as **real PDF annotations**, so a highlight is still a highlight in Acrobat — clickable, recolourable, deletable — and read back when you reopen the file, including documents marked up in Acrobat. **Flatten for printing** bakes it into the page instead
-- **Signing** — hand-drawn or typed signatures, digital signatures with RFC 3161 timestamping, password-protected exports
+- **Signing and locking** — hand-drawn or typed signatures, digital signatures with RFC 3161 timestamping, and AES-256 password-protected exports that Volt can also open again
 - **Export** — PDF, PDF/A-1b, Word, Excel, PowerPoint, Markdown, TSV, and a portable JSON backup of your annotations
 - **Text-only export** — Word, plain text and CSV for when you want the words and nothing else: no tables, no pictures, no guess at layout, so nothing to get wrong
 - **OCR** — built in, English included, 20+ more languages downloaded on demand
@@ -67,6 +67,10 @@ Rough guide on a machine with 8 GB of VRAM: a 3B model answers in seconds and us
 Exports and saved files land in your Downloads folder by default. **Windows often redirects Downloads into OneDrive**, and if yours is redirected then everything you export syncs to the cloud — which is not what an app like this should do quietly. Check ⚙ Settings → *Files* to see where they are actually going, and point it at a local folder if you would rather they stayed on the machine. The export dialog also shows the destination and lets you send one export somewhere else without changing the default.
 
 ## Telling us what broke
+
+**You do not need a GitHub account.** Use **☰ → Send feedback** in the app: it fills in your version and system details, and offers to send by email as well as to draft an issue. Sending by email needs no account of any kind.
+
+
 
 Open an [issue](https://github.com/cyborgpulsedev/Volt-Beta-260829/issues) — or use **☰ → Send feedback** in the app, which opens the same place with your version already filled in.
 

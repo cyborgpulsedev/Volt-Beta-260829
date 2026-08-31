@@ -1448,9 +1448,14 @@ function runSmokeTest(w) {
       try { require("node:child_process").execSync("taskkill /F /T /PID " + process.pid); } catch (e) { /* already gone */ }
     }
     app.exit(2);
-  }, 120000).unref(); // 120s: the suite has grown (OCR-via-WASM, watch, restore
-  // stages all jitter on a loaded machine); 60s was tipping over under load
-  // and killing runs that were merely slow, not hung
+  }, 300000).unref(); // 300s. This number has been raised twice, both times for
+  // the same reason: the suite grew and a run that was merely slow got killed
+  // and reported as a hang. 60s went to 120s for OCR-via-WASM, watch and
+  // restore; 120s to 300s when the long-document probe (a real 60-page file,
+  // a dozen jumps, page edits deep in it) and the annotation round trip
+  // landed. It is a hang detector, not a performance budget — if a run is
+  // genuinely slow that belongs in the timings the probes already report,
+  // not in a watchdog that throws the whole result away.
 
   const report = (ok, extra) => {
     // NOTE: the printed object is `{...extra, ok}` — extra carries the probe

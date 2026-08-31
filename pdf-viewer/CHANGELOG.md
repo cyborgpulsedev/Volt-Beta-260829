@@ -4,6 +4,45 @@ Each release is a `## x.y.z` section. The version banner tooltip shows the
 sections newer than the installed bundle, so a pending update tells you what
 changed before you restart.
 
+## 1.0.16
+
+**Volt can open password-protected PDFs, and the ones it makes are now
+AES-256.** The lock feature was the least finished part of the app.
+
+- **A password prompt.** Volt could create password-protected files and then
+  refuse to open one — its own included — because pdf.js raises
+  PasswordException and nothing caught it. You got "Failed to open PDF: No
+  password given" and nowhere to type. Opening an encrypted document now asks
+  for the password, says which file it is asking about, tells you when the one
+  you gave was wrong, and takes Enter and Escape. Cancelling leaves whatever
+  you had open alone.
+- **AES-256 instead of 40-bit RC4.** Secured exports were written as V=1 R=2:
+  RC4 with a 40-bit key, the weakest scheme the format defines, deprecated
+  since PDF 1.4 in 2001 and recoverable in seconds. They are now V=5 R=6 —
+  AES-256 with SHA-2 key derivation, and permission bits signed into the file
+  rather than merely stated. Verified end to end: written, prompted for,
+  opened, text readable.
+- **Feedback without a GitHub account.** "Draft on GitHub" needs an account,
+  and plenty of people who would tell you something is broken do not have one.
+  A "Send by email" button posts the same report — summary, message,
+  environment, optional contact — to a form relay that forwards it as email.
+  The destination address is not in the source, not in the UI and never sent
+  by the app; it lives in the relay's own configuration. If the send fails the
+  report is written to a file rather than lost. The button stays hidden until
+  a relay endpoint is configured, because a button that cannot work is worse
+  than no button.
+
+Two things the gates themselves needed:
+
+- **The smoke watchdog was killing a run that was merely slow.** A full run
+  now takes 129 seconds; the watchdog was 120. It is 300 now, and the comment
+  says plainly that it is a hang detector rather than a performance budget —
+  this is the second time the suite has outgrown it. The artifact regression's
+  own timeout is above it, so the watchdog is what decides a hang.
+- **The Word-fidelity gate retries once.** LibreOffice's first conversion
+  after a cold start can return nothing, which read as the export doubling its
+  page count when nothing of the sort had happened.
+
 ## 1.0.15
 
 **Volt reads annotations as well as writing them** — including ones made in

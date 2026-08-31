@@ -3115,6 +3115,13 @@ input[type="range"] { accent-color: var(--accent); }
   min-width: 0;
 }
 
+#pass-input { width: 100%; box-sizing: border-box; }
+.pass-error {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--danger, #f87171);
+}
+
 .feedback-summary {
   width: 100%;
   box-sizing: border-box;

@@ -59,7 +59,11 @@ const diskCache = () => {
 function runSmoke() {
   const r = spawnSync(ELECTRON, [".", "--smoke-no-focus"], {
     cwd: APP_DIR, encoding: "utf8", shell: false,
-    timeout: 180000, maxBuffer: 16 * 1024 * 1024,
+    // Comfortably above the in-app watchdog (300s), which is the thing that
+    // is supposed to decide a run has hung. When this was the SHORTER of the
+    // two it killed the smoke first and reported a regression in the
+    // artifacts, which is a lie about where the problem is.
+    timeout: 420000, maxBuffer: 16 * 1024 * 1024,
   });
   const out = (r.stdout || "") + (r.stderr || "");
   const m = out.match(/SMOKE_RESULT (\{.*\})/s);

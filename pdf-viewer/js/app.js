@@ -224,6 +224,9 @@
         feedbackModal: $("feedback-modal"), feedbackType: $("feedback-type"), feedbackText: $("feedback-text"),
         feedbackEmail: $("feedback-email"), feedbackGo: $("feedback-go"), feedbackCancel: $("feedback-cancel"),
         feedbackSummary: $("feedback-summary"),
+        feedbackEmailBtn: $("feedback-email-btn"), feedbackEmailNote: $("feedback-email-note"),
+        passModal: $("pass-modal"), passInput: $("pass-input"), passGo: $("pass-go"),
+        passCancel: $("pass-cancel"), passSub: $("pass-sub"), passError: $("pass-error"),
         setupModal: $("setup-modal"), startHint: $("start-hint"),
         setupSteps: $("setup-steps"), setupSkip: $("setup-skip"),
         setupNext0: $("setup-next-0"), setupNext1: $("setup-next-1"), setupNext2: $("setup-next-2"),
@@ -398,6 +401,15 @@
       if (el.btnAbout) el.btnAbout.addEventListener("click", () => this._openAbout());
       if (el.btnMenuFeedback) el.btnMenuFeedback.addEventListener("click", () => this._openFeedback());
       if (el.feedbackGo) el.feedbackGo.addEventListener("click", () => this._sendFeedback());
+      /* "Send by email" appears only when a relay is configured. Without one
+         the button could not work, and a send that fails silently loses the
+         report someone just wrote. */
+      if (el.feedbackEmailBtn) {
+        const relayOn = !!this.FEEDBACK_RELAY;
+        el.feedbackEmailBtn.hidden = !relayOn;
+        if (el.feedbackEmailNote) el.feedbackEmailNote.hidden = !relayOn;
+        el.feedbackEmailBtn.addEventListener("click", () => this._emailFeedback());
+      }
       if (el.feedbackCancel) el.feedbackCancel.addEventListener("click", () => this._closeModal(el.feedbackModal));
       if (el.feedbackText) el.feedbackText.addEventListener("keydown", (e) => {
         if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) this._sendFeedback();
@@ -920,6 +932,86 @@
       el.feedbackEmail.value = "";
       this._openModal(el.feedbackModal);
       (el.feedbackSummary || el.feedbackText).focus();
+    },
+
+    /* ── feedback by email ───────────────────────────────────────
+       "Draft on GitHub" needs a GitHub account, and plenty of people who
+       would happily tell you something is broken do not have one and will not
+       make one to say so. This posts the same report to a form relay, which
+       forwards it as email.
+
+       The destination address is NOT in this file, is not in the UI, and is
+       never sent from the app: it lives in the relay's own configuration,
+       behind the endpoint id below. A page-source reader learns the relay
+       endpoint, which accepts submissions and reveals nothing — not an
+       address to harvest.
+
+       Empty by default, and the button stays hidden while it is: a button
+       that cannot work is worse than no button, and a broken send loses the
+       report the person just typed. Set it to the relay's POST endpoint to
+       turn the feature on. */
+    FEEDBACK_RELAY: "",
+
+    /** Post the report to the relay. Resolves true on success. Anything else
+        — offline, endpoint down, relay rejecting — resolves false, and the
+        caller saves the report to a file rather than losing it. */
+    async _sendFeedbackEmail(payload) {
+      const url = this.FEEDBACK_RELAY;
+      if (!url) return false;
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify(payload),
+        });
+        return res.ok;
+      } catch (e) {
+        return false;   // never throw out of a feedback send
+      }
+    },
+
+    /** The "Send by email" button: same fields, same environment block, no
+        GitHub account. On failure the report is written to a file so the
+        person does not lose what they wrote. */
+    async _emailFeedback() {
+      const el = this.elements;
+      const text = (el.feedbackText.value || "").trim();
+      if (!text) { this.toast("Write a short message first", "error"); return; }
+      const summary = ((el.feedbackSummary && el.feedbackSummary.value) || "").trim();
+      const type = el.feedbackType.value;
+      const contact = (el.feedbackEmail.value || "").trim();
+      const env = [
+        "Volt " + (window.__VOLT_VERSION || "dev"),
+        global.voltDesktop ? "Electron desktop" : "Browser / PWA",
+        "OS: " + ((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform),
+        navigator.userAgent.replace(/\s+/g, " ").slice(0, 160),
+      ];
+      if (this.currentDocInfo && this.currentDocInfo.name) env.push("Document: " + this.currentDocInfo.name);
+      const subject = (type === "Bug report" ? "[Bug] " : type === "Feature request" ? "[Feature] " : "[Feedback] ") +
+        (summary || text.split(/\n/)[0].slice(0, 80));
+
+      this._closeModal(el.feedbackModal);
+      const sending = this.toast("Sending feedback…");
+      const ok = await this._sendFeedbackEmail({
+        subject, type, summary, message: text,
+        contact: contact || "(none given)",
+        environment: env.join("\n"),
+      });
+      if (sending && sending.remove) sending.remove();
+      if (ok) {
+        this.toast("Thanks — your feedback was sent" + (contact ? ", and we can reply to you" : ""), "ok");
+        return;
+      }
+      /* The send failed and the report must not evaporate. Same fallback the
+         GitHub path uses: write it to a file the person can send later. */
+      const stamp = new Date();
+      const p2 = (n) => String(n).padStart(2, "0");
+      const name = "volt-feedback-" + stamp.getFullYear() + p2(stamp.getMonth() + 1) + p2(stamp.getDate()) +
+        "-" + p2(stamp.getHours()) + p2(stamp.getMinutes()) + p2(stamp.getSeconds()) + ".md";
+      const body = "# " + subject + "\n\n" + text + "\n\n---\n\n**Environment**\n- " + env.join("\n- ") +
+        (contact ? "\n\n**Contact:** " + contact : "") + "\n";
+      Utils.download(new Blob([body], { type: "text/markdown" }), name);
+      this.toast("Couldn't reach the feedback service — your report was saved as " + name, "error", true);
     },
 
     async _sendFeedback() {
@@ -3725,6 +3817,20 @@
           isEvalSupported: false,
           useSystemFonts: true,
         });
+        /* An encrypted document asks for its password here. pdf.js calls this
+           with (updatePassword, reason) and waits; reason 1 is "needs a
+           password", 2 is "the one you gave was wrong". Volt could WRITE
+           password-protected files and then refuse to open one — its own
+           included — because nothing caught PasswordException, so the user
+           saw "Failed to open PDF: No password given" with nowhere to type.
+           Cancelling rejects the task, which lands in the catch below and
+           leaves the previously open document alone. */
+        loadingTask.onPassword = (updatePassword, reason) => {
+          this._askPassword(name, reason === 2).then((pw) => {
+            if (pw == null) updatePassword(new Error("cancelled"));
+            else updatePassword(pw);
+          });
+        };
         const doc = await loadingTask.promise;
         this._loadingDoc = this.currentDoc; // will be destroyed by _docReady
         this.currentDoc = doc;
@@ -3738,9 +3844,50 @@
         this._loadingDoc = null;
         return true;
       } catch (e) {
+        // a cancelled password prompt is a choice, not a failure to report
+        if (/cancelled/i.test(e && e.message)) { this._dismissToast(); return false; }
         this.toast("Failed to open PDF: " + (e.message || e), "error", true);
         return false;
       }
+    },
+
+    /** Ask for a document password. Resolves with the string, or null if the
+        user cancelled. Enter submits, Escape cancels — the modal machinery
+        already gives it a focus trap and an inert background. */
+    _askPassword(name, retry) {
+      const el = this.elements;
+      const modal = el.passModal;
+      if (!modal) return Promise.resolve(null);
+      return new Promise((resolve) => {
+        let done = false;
+        const finish = (value) => {
+          if (done) return;
+          done = true;
+          el.passInput.removeEventListener("keydown", onKey);
+          el.passGo.removeEventListener("click", onGo);
+          el.passCancel.removeEventListener("click", onCancel);
+          modal.removeEventListener("volt:modal-closed", onCancel);
+          this._closeModal(modal);
+          el.passInput.value = "";
+          resolve(value);
+        };
+        const onGo = () => { const v = el.passInput.value; if (v) finish(v); };
+        const onCancel = () => finish(null);
+        const onKey = (ev) => {
+          if (ev.key === "Enter") { ev.preventDefault(); onGo(); }
+          else if (ev.key === "Escape") { ev.preventDefault(); onCancel(); }
+        };
+        el.passSub.textContent = name
+          ? "Enter the password to open " + name + "."
+          : "Enter the password to open it.";
+        el.passError.hidden = !retry;
+        el.passInput.value = "";
+        el.passGo.addEventListener("click", onGo);
+        el.passCancel.addEventListener("click", onCancel);
+        el.passInput.addEventListener("keydown", onKey);
+        this._openModal(modal);
+        setTimeout(() => el.passInput.focus(), 30);
+      });
     },
 
     openSample() {
@@ -5625,13 +5772,17 @@
       try {
         this.toast("Locking PDF…", "ok");
         const bytes = await Volt.Ann.toAnnotatedPdf({ classic: true });
-        const locked = Volt.Secure.lock(bytes, {
+        /* AES-256 (V=5, R=6). The original RC4-40 path is still in
+           pdf-secure.js and still tested, but 40-bit RC4 has been recoverable
+           in seconds for two decades, which made "password-protect the
+           exported file" promise far more than it delivered. */
+        const locked = await Volt.Secure.lockAes(bytes, {
           userPassword: pass || "",
           ownerPassword: pass || "",
           permissions: { copying: copy, printing: print, modifying: modify, annotations: modify },
         });
         Utils.download(new Blob([locked], { type: "application/pdf" }), base + "-secured.pdf");
-        this.toast("Secured PDF exported — password required to open", "ok");
+        this.toast("Secured PDF exported — AES-256, password required to open", "ok");
       } catch (e) {
         this.toast("Secure export failed: " + (e.message || e), "error");
       }

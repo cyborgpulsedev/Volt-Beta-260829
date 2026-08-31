@@ -50,11 +50,19 @@ function findSoffice() {
 function renderedPageCount(soffice, bytes, dir, stem) {
   const docx = join(dir, stem + ".docx");
   writeFileSync(docx, Buffer.from(bytes));
-  const r = spawnSync(soffice, ["--headless", "--norestore", "--convert-to", "pdf", "--outdir", dir, docx],
-    { encoding: "utf8", timeout: 5 * 60 * 1000 });
   const pdf = join(dir, stem + ".pdf");
+  /* LibreOffice's FIRST conversion after a cold start builds a user profile
+     and can come back with nothing at all — a false red that says the export
+     doubled its page count when nothing of the sort happened. One retry costs
+     seconds and removes the whole class of flake. */
+  let r = null;
+  for (let attempt = 0; attempt < 2 && !existsSync(pdf); attempt++) {
+    r = spawnSync(soffice, ["--headless", "--norestore", "--convert-to", "pdf", "--outdir", dir, docx],
+      { encoding: "utf8", timeout: 5 * 60 * 1000 });
+  }
   if (!existsSync(pdf)) {
-    throw new Error("LibreOffice produced no PDF (" + ((r.stderr || r.stdout || "").trim().slice(0, 200) || "no output") + ")");
+    throw new Error("LibreOffice produced no PDF after two attempts (" +
+      (((r && (r.stderr || r.stdout)) || "").trim().slice(0, 200) || "no output") + ")");
   }
   const data = readFileSync(pdf);
   // count page objects; /Type /Page but not /Pages

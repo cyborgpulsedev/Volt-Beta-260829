@@ -50,6 +50,175 @@
       return out;
     },
 
+    /* ── AES-256 lock (V=5, R=6) ─────────────────────────────────
+       The RC4-40 path below still exists and still passes its tests, but this
+       is what the app uses. Two things make AES a different shape of job
+       rather than a swap of one call for another:
+
+         * RC4 is a stream cipher, so the old walker could encrypt a stream in
+           place and leave /Length untouched. AES prepends a 16-byte IV and
+           pads to a block, so every stream gets LONGER and its /Length has to
+           be rewritten or the file is unreadable.
+         * R=6 uses one file key for the whole document. There is no
+           per-object key derivation, so object and generation numbers stop
+           mattering to the crypto.
+
+       WebCrypto is async, so this path is too. */
+    async lockAes(bytes, opts) {
+      const o = opts || {};
+      const src = this._latin1(bytes);
+      if (/\/Type\s*\/ObjStm\b/.test(src)) {
+        throw new Error("Volt.Secure requires classic xref output — save the PDF with { useObjectStreams: false } before locking (objects hidden in an ObjStm can't be re-encoded by the classic xref rebuild)");
+      }
+      const keys = await Utils.pdfSecurityKeysR6(o.userPassword, o.ownerPassword, o.permissions || {});
+      return this._rebuildEncryptedAes(src, keys);
+    },
+
+    /** Encrypt one object body with AES-256. Returns the new body text, with
+        /Length corrected when the object carries a stream. */
+    async _encryptObjectBodyAes(body, key) {
+      // ── locate the stream payload, if any ──
+      const sm = /stream\r?\n/.exec(body);
+      let dictPart = body, streamData = null, tailPart = "";
+      if (sm) {
+        const dataStart = sm.index + sm[0].length;
+        const lenM = /\/Length\s+(\d+)/.exec(body.slice(0, sm.index));
+        let dataEnd;
+        if (lenM) dataEnd = dataStart + parseInt(lenM[1], 10);
+        else {
+          const em = /\r?\nendstream/.exec(body.slice(dataStart));
+          dataEnd = em ? dataStart + em.index : body.length;
+        }
+        /* An indirect /Length (/Length 12 0 R) would need the referenced
+           object rewritten too. pdf-lib never writes one, and guessing would
+           produce a file that opens to an error — so refuse instead. */
+        if (!lenM && /\/Length\s+\d+\s+\d+\s+R/.test(body.slice(0, sm.index))) {
+          throw new Error("Volt.Secure cannot lock a stream whose /Length is an indirect reference");
+        }
+        dictPart = body.slice(0, sm.index);
+        streamData = body.slice(dataStart, dataEnd);
+        tailPart = body.slice(dataEnd);
+      }
+
+      // ── strings inside the dictionary ──
+      const parts = [];
+      let i = 0;
+      const bl = dictPart.length;
+      while (i < bl) {
+        const c = dictPart[i];
+        if (c === "(") {
+          let j = i + 1, depth = 1;
+          while (j < bl && depth > 0) {
+            if (dictPart[j] === "\\") { j += 2; continue; }
+            if (dictPart[j] === "(") depth++;
+            else if (dictPart[j] === ")") depth--;
+            j++;
+          }
+          const raw = this._unescapeLiteral(dictPart.slice(i + 1, Math.max(i + 1, j - 1)));
+          const enc = await Utils._aesCbcWithIv(key, this._latin1ToBytes(raw));
+          parts.push(this._escapeLiteralBytes(enc));
+          i = j;
+          continue;
+        }
+        if (c === "<" && dictPart[i + 1] === "<") { parts.push("<<"); i += 2; continue; }
+        if (c === ">" && dictPart[i + 1] === ">") { parts.push(">>"); i += 2; continue; }
+        if (c === "<") {
+          let j = i + 1;
+          while (j < bl && dictPart[j] !== ">") j++;
+          const hex = dictPart.slice(i + 1, j).replace(/\s+/g, "");
+          const enc = await Utils._aesCbcWithIv(key, this._hexToBytes(hex));
+          parts.push("<" + this._toHex(enc) + ">");
+          i = Math.min(j + 1, bl);
+          continue;
+        }
+        let j = i;
+        while (j < bl) {
+          const c2 = dictPart[j];
+          if (c2 === "(" || c2 === "<" || c2 === ">") break;
+          j++;
+        }
+        parts.push(dictPart.slice(i, j));
+        i = j;
+      }
+      let outDict = parts.join("");
+
+      if (streamData === null) return outDict;
+
+      // ── the stream, and the /Length that now describes it ──
+      const encStream = await Utils._aesCbcWithIv(key, this._latin1ToBytes(streamData));
+      const newLen = encStream.length;
+      let patched = false;
+      outDict = outDict.replace(/\/Length\s+\d+/, () => { patched = true; return "/Length " + newLen; });
+      if (!patched) throw new Error("Volt.Secure could not rewrite a stream's /Length after encryption");
+      return outDict + "stream\n" + this._latin1(encStream) + tailPart;
+    },
+
+    /** Rebuild the file with every object encrypted, the V=5 /Encrypt
+        dictionary appended, and a fresh classic xref. */
+    async _rebuildEncryptedAes(src, keys) {
+      const objRe = /(\d+)\s+(\d+)\s+obj[\r\n]/g;
+      const objs = [];
+      let m, lastEnd = 0;
+      while ((m = objRe.exec(src))) {
+        const bodyStart = objRe.lastIndex;
+        const endRel = src.indexOf("\nendobj", bodyStart);
+        const end = endRel < 0 ? src.length : endRel + 1;
+        objs.push({ num: parseInt(m[1], 10), gen: parseInt(m[2], 10), bodyStart, end });
+        lastEnd = Math.max(lastEnd, end);
+      }
+      if (!objs.length) throw new Error("No PDF objects found — cannot lock");
+      const tail = src.slice(lastEnd);
+      objRe.lastIndex = 0;
+      const first = objRe.exec(src);
+      const head = src.slice(0, first ? first.index : 0);
+
+      let out = head;
+      const offsets = {};
+      for (const ob of objs) {
+        offsets[ob.num] = out.length;
+        const body = src.slice(ob.bodyStart, ob.end);
+        const encBody = await this._encryptObjectBodyAes(body, keys.key);
+        out += ob.num + " " + ob.gen + " obj\n" + encBody + "\nendobj\n";
+      }
+      const maxNum = Math.max(...objs.map((x) => x.num));
+      const encNum = maxNum + 1;
+      /* The /Encrypt dictionary is itself never encrypted, which is why its
+         strings are written as hex here and skipped by the walk above (it is
+         appended after every object has been processed). */
+      const encDict = encNum + " 0 obj\n<< /Filter /Standard /V 5 /R 6 /Length 256" +
+        " /CF << /StdCF << /CFM /AESV3 /AuthEvent /DocOpen /Length 32 >> >>" +
+        " /StmF /StdCF /StrF /StdCF" +
+        " /O <" + this._toHex(keys.O) + ">" +
+        " /U <" + this._toHex(keys.U) + ">" +
+        " /OE <" + this._toHex(keys.OE) + ">" +
+        " /UE <" + this._toHex(keys.UE) + ">" +
+        " /Perms <" + this._toHex(keys.Perms) + ">" +
+        " /P " + keys.P + " /EncryptMetadata true >>\nendobj\n";
+      offsets[encNum] = out.length;
+      out += encDict;
+
+      const xrefOff = out.length;
+      const size = maxNum + 2;
+      let xref = "xref\n0 " + size + "\n0000000000 65535 f \n";
+      for (let n = 1; n < size; n++) {
+        const off = offsets[n];
+        xref += off == null
+          ? "0000000000 65535 f \n"
+          : String(off).padStart(10, "0") + " 00000 n \n";
+      }
+      const root = /\/Root\s+(\d+\s+\d+\s+R)/.exec(tail) || /\/Root\s+(\d+\s+\d+\s+R)/.exec(src);
+      const info = /\/Info\s+(\d+\s+\d+\s+R)/.exec(tail) || /\/Info\s+(\d+\s+\d+\s+R)/.exec(src);
+      const idm = /\/ID\s*\[\s*<([0-9a-fA-F]*)>\s*<([0-9a-fA-F]*)>\s*\]/.exec(tail) ||
+        /\/ID\s*\[\s*<([0-9a-fA-F]*)>\s*<([0-9a-fA-F]*)>\s*\]/.exec(src);
+      if (!root) throw new Error("Could not find /Root — cannot rebuild the trailer");
+      let trailer = "trailer\n<< /Size " + size + " /Root " + root[1] +
+        (info ? " /Info " + info[1] : "") +
+        " /Encrypt " + encNum + " 0 R" +
+        (idm ? " /ID [<" + idm[1] + "> <" + idm[2] + ">]" : "") + " >>\n";
+      out += xref + trailer + "startxref\n" + xrefOff + "\n%%EOF\n";
+      return this._latin1ToBytes(out);
+    },
+
     /* ── document walk ──────────────────────────────────────── */
 
     /** Extract the trailer's first /ID element (16 bytes) — required by the
