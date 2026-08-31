@@ -3891,6 +3891,26 @@
         this.elements.toolsEmptyHint.hidden = anyToolVisible;
       }
       Volt.Ann.loadForDoc(this.currentDocInfo);
+      /* Pull in markup the FILE carries — Volt's own exports, and documents
+         marked up in Acrobat, which Volt could never read before. Only when
+         Volt has nothing stored for this document: its own saved list is
+         newer and richer than anything the file can express, and must win.
+         Async and deliberately not awaited, so a document with hundreds of
+         annotations still opens immediately. */
+      if (!Volt.Ann.list.length && Volt.Ann.importFromPdf) {
+        const forDoc = this.currentDocId;
+        Volt.Ann.importFromPdf(this.currentDoc).then((found) => {
+          // the user may have opened something else while this was running
+          if (!found.length || this.currentDocId !== forDoc || Volt.Ann.list.length) return;
+          Volt.Ann.list.push(...found);
+          Volt.Ann._afterChange && Volt.Ann._afterChange();
+          this.refreshNotesBadge && this.refreshNotesBadge();
+          Volt.Ann.renderAllPins && Volt.Ann.renderAllPins();
+          this._renderVisible && this._renderVisible();
+          this.toast(found.length + " annotation" + (found.length === 1 ? "" : "s") +
+            " read from the file — yours to edit", "ok");
+        }).catch(() => { /* an unreadable annotation must never block opening */ });
+      }
       if (Volt.Bm) Volt.Bm.loadForDoc(this.currentDocInfo); // bookmarks follow the same doc identity
       Volt.AI._pageTexts = null;
       Volt.AI._closeDocPopover();

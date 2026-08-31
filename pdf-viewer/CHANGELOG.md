@@ -4,6 +4,46 @@ Each release is a `## x.y.z` section. The version banner tooltip shows the
 sections newer than the installed bundle, so a pending update tells you what
 changed before you restart.
 
+## 1.0.15
+
+**Volt reads annotations as well as writing them** — including ones made in
+Acrobat, which it could never open before.
+
+- **Your own markup is yours again.** 1.0.14 wrote real annotation objects but
+  could not read one back: reopening your own export showed the highlight,
+  because the viewer draws it from its appearance stream, while Volt's markup
+  layer sat empty. You could not select it, recolour it, move it or delete it,
+  and nothing said so. Opening a document now pulls in every `/Highlight`,
+  `/Underline`, `/StrikeOut`, `/Square` and `/Text` it carries, with its colour
+  and its text, and they behave like marks you just made.
+- **Documents marked up elsewhere open properly.** The same path reads a file
+  annotated in Acrobat or any other tool.
+- **A round trip does not duplicate or resurrect.** The file already holds what
+  was imported, so an export that merely added would stack a second highlight
+  on the first — and a mark you deleted would survive because its page no
+  longer had anything to write. Every page is cleared of the five subtypes
+  Volt manages before its own list is written. Measured: import five, delete
+  one, re-export, and the file has four with nothing repeated.
+- **Only the five subtypes Volt owns are touched.** FreeText, Ink, Stamp, Link
+  and form widgets are left exactly as they are, on the way in and on the way
+  out.
+- **Imported markup never overrides your own.** The import runs only when Volt
+  has nothing stored for that document, because its own saved list is richer
+  than anything the PDF can express. It also runs off the main path, so a
+  document with hundreds of annotations still opens immediately.
+- **Uninstalling clears the updater cache.** A beta pass measured 231 MB of
+  downloaded installers still on disk after a clean uninstall. Your annotations
+  and settings are still deliberately left alone.
+- **The smoke harness disables occluded-window throttling.** Chromium stops
+  painting and delivering input to a fully covered window, which reads exactly
+  like a navigation bug — a beta pass lost an hour to it and nearly filed a
+  regression that did not exist. Real users keep the throttling; a test has to
+  render whether anyone is watching or not.
+- **Tests**: the smoke probe now runs the whole cycle — write five annotation
+  types, read them back, check the types, colours and quad orientation, delete
+  one, write again, and assert the file has four with the deleted one gone and
+  nothing duplicated.
+
 ## 1.0.14
 
 **Markup is now real PDF annotations, and flattening is its own export.**

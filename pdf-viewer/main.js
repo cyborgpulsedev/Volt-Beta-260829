@@ -68,6 +68,18 @@ const SMOKE_BROWSER = process.argv.includes("--smoke-browser");
 const SMOKE_FEED = process.argv.includes("--smoke-feed");
 const SMOKE = process.argv.includes("--smoke") || process.argv.includes("--smoke-no-focus") || SMOKE_BROWSER || SMOKE_FEED;
 const SMOKE_FOCUS_STAGE = (process.argv.includes("--smoke") || SMOKE_BROWSER) && !process.argv.includes("--smoke-no-focus");
+/* Chromium marks a fully covered window as hidden and stops painting and
+   delivering input to it. On a developer's machine the smoke window is behind
+   a terminal more often than not, and the result reads exactly like a
+   navigation bug: pages stop rendering, the page readout freezes, synthetic
+   input times out. A beta pass lost an hour to that and nearly filed a
+   regression that did not exist. Real users keep the throttling — it saves
+   power on a window nobody is looking at — but a test must render whether
+   anyone is watching or not. */
+if (SMOKE) {
+  app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
+  app.commandLine.appendSwitch("disable-renderer-backgrounding");
+}
 // --vendor-stage <dir>: serve /vendor/* from <dir> instead of vendor/ (falling
 // back to the real vendor for anything missing). The updater gates a staged
 // pdf.js/pdf-lib bump through the full smoke probe BEFORE swapping it in — the
@@ -6708,10 +6720,57 @@ function runSmokeTest(w) {
               annObj.flattenWritesNoAnnots = !flatAnnots || flatAnnots.size() === 0;
               annObj.flattenStillProducesAFile = flatBytes.byteLength > 900;
 
+              /* Reading them back. Volt wrote real annotations and could not
+                 read one: reopening your own export showed the markup, because
+                 the viewer draws it from the appearance stream, but Volt's
+                 layer was empty — you could not select, recolour or delete
+                 your own marks. The round trip is the point of the feature,
+                 and the trap sits in the middle of it: the file still holds
+                 what was imported, so an export that only ADDS stacks a second
+                 copy on the first, and a mark the user DELETED survives unless
+                 every page is cleared first. */
+              const openedDoc = await window.pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
+              const back = await An.importFromPdf(openedDoc);
+              annObj.importedCount = back.length;
+              annObj.importedTypes = back.map((x) => x.type).sort().join(",");
+              annObj.importedAllFive = annObj.importedTypes === "highlight,note,rect,strike,underline";
+              annObj.importedColours = back.filter((x) => /^#[0-9a-f]{6}$/i.test(x.color || "")).length === 5;
+              // quads must come back as [tl, tr, br, bl] with the top edge
+              // above the bottom - a straight copy of the spec order gives a
+              // bow-tie and no structural check would see it
+              const hlBack = back.find((x) => x.type === "highlight");
+              annObj.importedQuadShape = !!hlBack && hlBack.quads.length === 1 &&
+                hlBack.quads[0].length === 4 &&
+                hlBack.quads[0][0].y > hlBack.quads[0][2].y &&
+                hlBack.quads[0][0].x < hlBack.quads[0][1].x;
+
+              // edit one away, write back, and the file must LOSE it
+              const kept = back.filter((x) => x.type !== "strike");
+              const savedList2 = An.list.slice();
+              An.list.length = 0;
+              for (const x of kept) An.list.push(x);
+              const rtBytes = await An.toAnnotatedPdf();
+              An.list.length = 0;
+              for (const x of savedList2) An.list.push(x);
+              const rtDoc = await L5.PDFDocument.load(rtBytes);
+              const rtAnnots = rtDoc.getPage(0).node.Annots();
+              const rtSubs = [];
+              for (let i = 0; i < (rtAnnots ? rtAnnots.size() : 0); i++) {
+                rtSubs.push(String(rtAnnots.lookup(i).get(L5.PDFName.of("Subtype"))).replace("/", ""));
+              }
+              annObj.roundTripCount = rtSubs.length;
+              annObj.roundTripNoDuplicates = rtSubs.length === 4;
+              annObj.roundTripDropsDeleted = rtSubs.indexOf("StrikeOut") === -1;
+              annObj.roundTripKeepsRest = ["Highlight", "Underline", "Square", "Text"]
+                .every((x) => rtSubs.indexOf(x) !== -1);
+
               annObj.allOk = annObj.count === 5 && annObj.hasAllFive === true &&
                 annObj.everyMarkupHasAppearance === true && annObj.quadPointsPerQuad === true &&
                 annObj.quadOrderIsSpec === true && annObj.flattenWritesNoAnnots === true &&
-                annObj.flattenStillProducesAFile === true && !annObj.badPrintFlag;
+                annObj.flattenStillProducesAFile === true && !annObj.badPrintFlag &&
+                annObj.importedAllFive === true && annObj.importedColours === true &&
+                annObj.importedQuadShape === true && annObj.roundTripNoDuplicates === true &&
+                annObj.roundTripDropsDeleted === true && annObj.roundTripKeepsRest === true;
               await sleep5(50);
             } catch (e) { annObj.error = String((e && e.message) || e); annObj.allOk = false; }
 

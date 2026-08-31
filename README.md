@@ -50,7 +50,7 @@ Rough guide on a machine with 8 GB of VRAM: a 3B model answers in seconds and us
 ## What's here
 
 - **Reading** — vendored pdf.js, continuous / single-page / two-page spread, fit-width and fit-page, rotation, and three skins (Neon, Paper, Quiet)
-- **Markup** — highlights, underlines, strikethrough, notes, rectangles, redactions, in-place text editing, bookmarks. Exported as **real PDF annotations**, so a highlight is still a highlight in Acrobat — clickable, recolourable, deletable — with **Flatten for printing** when you want it baked into the page instead
+- **Markup** — highlights, underlines, strikethrough, notes, rectangles, redactions, in-place text editing, bookmarks. Exported as **real PDF annotations**, so a highlight is still a highlight in Acrobat — clickable, recolourable, deletable — and read back when you reopen the file, including documents marked up in Acrobat. **Flatten for printing** bakes it into the page instead
 - **Signing** — hand-drawn or typed signatures, digital signatures with RFC 3161 timestamping, password-protected exports
 - **Export** — PDF, PDF/A-1b, Word, Excel, PowerPoint, Markdown, TSV, and a portable JSON backup of your annotations
 - **Text-only export** — Word, plain text and CSV for when you want the words and nothing else: no tables, no pictures, no guess at layout, so nothing to get wrong

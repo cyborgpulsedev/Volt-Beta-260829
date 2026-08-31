@@ -1,8 +1,12 @@
-## Volt 1.0.14
+## Volt 1.0.15
 
 Volt is a fast, private, ad-free PDF reader with AI built in — everything renders locally, and you bring your own LLM. No account, no telemetry, no upsells.
 
-**Your markup is now real PDF annotation objects.** Highlights, underlines, strikethroughs, boxes and notes used to be painted into the page — they looked right, and that was all. Open an exported file in Acrobat now and the highlight is a highlight: click it, change its colour, reply to it, delete it. Other PDF tools can read your markup too.
+**Your markup comes back when you reopen the file.** Last release Volt started writing real PDF annotations; it could not read them. Reopen your own export and the highlight was visible but no longer yours — you could not select it, recolour it or delete it. Now it is. The same change means Volt opens documents marked up in Acrobat, which it never could before.
+
+**Uninstalling cleans up after itself.** A quarter of a gigabyte of downloaded installers used to be left behind.
+
+**Your markup is real PDF annotation objects.** Highlights, underlines, strikethroughs, boxes and notes used to be painted into the page — they looked right, and that was all. Open an exported file in Acrobat now and the highlight is a highlight: click it, change its colour, reply to it, delete it. Other PDF tools can read your markup too.
 
 **Export → Flatten for printing** does the old thing on purpose, for when a file is going to a printer or to someone who must not be able to move the markup.
 
@@ -39,7 +43,7 @@ The full Word export that reconstructs columns, tables and page breaks properly 
 - Read aloud with local voices, and talk to the AI with your microphone
 
 **Install**
-- **New installs:** download `Volt-Setup-1.0.14.exe` and run it — per-user install, no admin needed. SmartScreen will warn on first launch: click "More info" → "Run anyway".
+- **New installs:** download `Volt-Setup-1.0.15.exe` and run it — per-user install, no admin needed. SmartScreen will warn on first launch: click "More info" → "Run anyway".
 - **Existing installs:** if you are on 1.0.9, this arrives on its own. If you are on 1.0.8 or earlier, install by hand once — automatic updates were broken before 1.0.9 and the version you have is the one that rejects them.
 
 **Requirements**

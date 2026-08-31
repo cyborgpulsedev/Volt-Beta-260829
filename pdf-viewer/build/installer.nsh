@@ -22,4 +22,11 @@
   ReadRegStr $0 SHELL_CONTEXT "Software\Classes\.pdf" ""
   StrCmp $0 "Volt PDF" 0 +2
   DeleteRegValue SHELL_CONTEXT "Software\Classes\.pdf" ""
+
+  ; The updater keeps the installers it downloads in its own cache under
+  ; LOCALAPPDATA, and nothing ever removes them: a beta pass measured 231 MB
+  ; still sitting there after a clean uninstall. The name matches
+  ; updaterCacheDirName in the build config. User DATA is deliberately left
+  ; alone (deleteAppDataOnUninstall is false) - this is only the cache.
+  RMDir /r "$LOCALAPPDATA\volt-pdf-reader-updater"
 !macroend

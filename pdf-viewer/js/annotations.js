@@ -3189,6 +3189,111 @@
         Volt.Secure.lock and Volt.Sign need; left off, the output matches the
         SOURCE document's own encoding, so a plain save or export comes back
         the size it went in instead of ~12% larger. */
+    /* ── reading annotations back out of a PDF ───────────────────
+       Volt writes real annotation objects, and until now could not read one.
+       Export a highlight, reopen the file, and the mark was visible — drawn
+       from its own appearance stream — but Volt's markup layer was empty, so
+       you could not select it, recolour it or delete it. Your own markup
+       stopped being yours the moment you saved it.
+
+       The same code opens a file marked up in Acrobat, which Volt could never
+       do either.
+
+       Imported marks are ordinary annotations from that point on, tagged with
+       the object id they came from so a re-export replaces them rather than
+       stacking a second copy on top (see _dropManagedAnnots). */
+
+    /** The five subtypes Volt owns. Anything else in the file — FreeText,
+        Ink, Stamp, Link, form widgets — is left exactly as it is, both on
+        import and on export. */
+    MANAGED_SUBTYPES: ["Highlight", "Underline", "StrikeOut", "Square", "Text"],
+
+    /** pdf.js colour (0-255 triple) to the hex Volt stores. */
+    _annColorHex(c) {
+      if (!c || c.length < 3) return null;
+      const h = (n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
+      return "#" + h(c[0]) + h(c[1]) + h(c[2]);
+    },
+
+    /** /QuadPoints is upper-left, upper-right, LOWER-LEFT, lower-right; Volt
+        stores [tl, tr, br, bl]. Swapping the last two is the whole conversion,
+        and getting it wrong produces a bow-tie rather than a rectangle. */
+    _quadsFromPdf(qp) {
+      const out = [];
+      if (!qp) return out;
+      const n = qp.length != null ? qp.length : 0;
+      for (let i = 0; i + 7 < n; i += 8) {
+        out.push([
+          { x: qp[i], y: qp[i + 1] },         // upper-left
+          { x: qp[i + 2], y: qp[i + 3] },     // upper-right
+          { x: qp[i + 6], y: qp[i + 7] },     // lower-RIGHT
+          { x: qp[i + 4], y: qp[i + 5] },     // lower-LEFT
+        ]);
+      }
+      return out;
+    },
+
+    /** Read every markup annotation Volt understands out of the open document
+        and return them as Volt records. Nothing is mutated. */
+    async importFromPdf(doc) {
+      const out = [];
+      if (!doc) return out;
+      for (let p = 1; p <= doc.numPages; p++) {
+        let anns = [];
+        try {
+          const page = await doc.getPage(p);
+          anns = await page.getAnnotations();
+        } catch (e) { continue; }   // one unreadable page must not lose the rest
+        for (const a of anns || []) {
+          const sub = a.subtype;
+          if (this.MANAGED_SUBTYPES.indexOf(sub) === -1) continue;
+          const color = this._annColorHex(a.color);
+          const note = (a.contentsObj && a.contentsObj.str) || a.contents || "";
+          const common = {
+            id: Utils.uid(), page: p, srcId: a.id || null,
+            color: color || undefined, text: note, note,
+          };
+          if (sub === "Highlight" || sub === "Underline" || sub === "StrikeOut") {
+            const quads = this._quadsFromPdf(a.quadPoints);
+            if (!quads.length) continue;
+            out.push(Object.assign(common, {
+              type: sub === "Highlight" ? "highlight" : sub === "Underline" ? "underline" : "strike",
+              quads,
+            }));
+          } else if (sub === "Square" && a.rect) {
+            const r = a.rect;
+            out.push(Object.assign(common, {
+              type: "rect",
+              rect: { x: Math.min(r[0], r[2]), y: Math.min(r[1], r[3]),
+                      w: Math.abs(r[2] - r[0]), h: Math.abs(r[3] - r[1]) },
+            }));
+          } else if (sub === "Text" && a.rect) {
+            const r = a.rect;
+            out.push(Object.assign(common, { type: "note", x: r[0], y: Math.max(r[1], r[3]) }));
+          }
+        }
+      }
+      return out;
+    },
+
+    /** Remove the annotations Volt manages from a page before writing its own.
+        Without this a round trip stacks a second highlight on the first: the
+        file already holds the one that was imported, and the export adds it
+        again. Annotations Volt does not manage are left untouched. */
+    _dropManagedAnnots(pdf, page) {
+      const { PDFName } = global.PDFLib;
+      const arr = page.node.Annots();
+      if (!arr) return 0;
+      let removed = 0;
+      for (let i = arr.size() - 1; i >= 0; i--) {
+        let sub = null;
+        try { sub = String(arr.lookup(i).get(PDFName.of("Subtype"))).replace("/", ""); }
+        catch (e) { continue; }   // a broken entry is left alone rather than guessed at
+        if (this.MANAGED_SUBTYPES.indexOf(sub) !== -1) { arr.remove(i); removed++; }
+      }
+      return removed;
+    },
+
     /* ── real PDF annotation objects (ISO 32000) ─────────────────
        Markup used to be painted into the page's content stream. That prints
        correctly and is impossible to undo: in Acrobat the highlight is part of
@@ -3374,6 +3479,12 @@
          is under them), signatures, dates, filled form values and in-place
          text edits. */
       const flatten = !!opts.flatten;
+      /* Clear the managed subtypes from EVERY page first, not just the pages
+         that still have marks on them. Volt's list is the truth: a highlight
+         the user deleted must not survive in the file because its page no
+         longer appears in byPage. Annotations Volt does not manage — FreeText,
+         Ink, Stamp, Link, form widgets — are never touched. */
+      for (let i = 0; i < pdf.getPageCount(); i++) this._dropManagedAnnots(pdf, pdf.getPage(i));
       for (const pageNum of Object.keys(byPage)) {
         const page = pdf.getPage(parseInt(pageNum, 10) - 1);
         for (const ann of byPage[pageNum]) {
