@@ -19,6 +19,17 @@ const fn = new Function("window", "global", "Utils", src);
 fn(globalThis, globalThis, globalThis.Utils);
 const Sign = globalThis.Volt.Sign;
 
+/* pdf-sign.js reads global.PDFLib, so the suite has to provide it — ONCE, here,
+   rather than as a side effect of a test that might not run. It used to be
+   assigned inside the block guarded by "is certs/volt-dev.pfx present?", which
+   is true on a maintainer's machine and false on CI and on any fresh clone. So
+   the later OpenSSL-PFX signing test passed locally and failed everywhere else
+   with "Cannot destructure property 'PDFDocument' of 'global.PDFLib'" — a test
+   depending on another test's leftovers, not a defect in the product. */
+const pdfLibMod = await import("file:///" +
+  join(__dirname, "..", "vendor", "pdf-lib.min.js").replace(/\\/g, "/"));
+globalThis.PDFLib = pdfLibMod.default || pdfLibMod;
+
 let pass = 0, fail = 0, skip = 0;
 const t = (name, cond) => { if (cond) { pass++; console.log("  ✓ " + name); } else { fail++; console.log("  ✗ " + name); } };
 const tSkip = (name) => { skip++; console.log("  ⤼ " + name + " (skipped)"); };
