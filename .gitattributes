@@ -17,6 +17,19 @@
 *.md text eol=lf
 VERSION text eol=lf
 sw.js text eol=lf
+
+# The Windows launchers go the OTHER way, and must. cmd.exe's block parser is
+# line-ending sensitive — an LF-only .cmd is a latent "was unexpected at this
+# time." waiting to happen, which is exactly the failure check-launchers.cjs
+# exists to prevent. They had no rule at all, so `text=auto` normalised them:
+# on Windows they happened to check out CRLF and the gate passed, on Linux
+# they checked out LF and it failed. That difference was invisible until the
+# suite first ran on a Linux runner, and the same normalisation could have
+# committed an LF launcher that shipped broken to Windows users.
+#
+# Only .cmd. PowerShell and wscript read LF happily, so pinning .ps1/.vbs
+# would be churn without a hazard behind it.
+*.cmd text eol=crlf
 *.wasm binary
 *.png binary
 *.gz binary
