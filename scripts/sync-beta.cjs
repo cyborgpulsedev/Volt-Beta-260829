@@ -38,14 +38,8 @@ const BETA_EXCLUDE = [
   ".github/workflows/linux.yml",
   ".github/workflows/macos.yml",
 
-  /* Internal planning, not documentation. before-launch.md is written FOR
-     the owner: it records the unsigned-publishing state, which decisions are
-     deliberately parked, and whether Volt is ever sold. None of it is
-     dangerous, and none of it is a tester's business either - a public repo
-     is not the place for a private to-do list about the product's commercial
-     posture. Excluded deliberately rather than by remembering each time,
-     because a whole-tree snapshot re-adds whatever a human forgets to strip. */
-  "docs/before-launch.md",
+  /* docs/ is governed by BETA_DOCS_ALLOW below, not by this list - see the
+     comment there. before-launch.md needs no entry here any more. */
 
   "assets/Volt Design Set.png",
   "assets/volt-icon-black.png",
@@ -56,6 +50,24 @@ const BETA_EXCLUDE = [
   "assets/volt-icon-transparent.psd",
   "assets/volt-icon.png",
   "assets/volt-logo.png",
+];
+
+/* docs/ is DENY-BY-DEFAULT. Everything else in this script is a denylist,
+   which is the right shape for a known, finite set of private artwork - but
+   it was the wrong shape for docs/, where new files appear all the time and
+   most of them are written for the owner rather than for a tester.
+
+   That asymmetry already cost something real: docs/before-launch.md, a
+   private to-do list about Volt's commercial posture, was published to the
+   public mirror simply because nobody had thought to add it to the denylist
+   before it existed. A denylist can only protect you from the mistakes you
+   have already made once.
+
+   So: a file under docs/ reaches the public repo only if it is named here.
+   Sources consumed by BETA_SUBSTITUTE do not need an entry - they are copied
+   to their destination and their originals removed either way. */
+const BETA_DOCS_ALLOW = [
+  "docs/index.html",   // the public landing page - written for testers
 ];
 
 /* Published under a DIFFERENT name in the beta repo.
@@ -120,6 +132,17 @@ function main() {
       if (existsSync(p)) { rmSync(p, { force: true }); stripped.push(rel); }
     }
 
+    /* Then the deny-by-default pass over docs/. Anything not on the allowlist
+       goes, INCLUDING files added after this line was written - which is the
+       entire point of inverting the rule for this directory. Substitution
+       sources are spared here and removed by the swap below instead. */
+    const substituteSources = new Set(Object.values(BETA_SUBSTITUTE));
+    for (const rel of git(["ls-files", "docs"], inWt).split(/\r?\n/).filter(Boolean)) {
+      if (BETA_DOCS_ALLOW.includes(rel) || substituteSources.has(rel)) continue;
+      const p = join(wt, rel);
+      if (existsSync(p)) { rmSync(p, { force: true }); stripped.push(rel + "  (docs: not on the allowlist)"); }
+    }
+
     // swap in the beta-facing versions, then remove their sources
     const swapped = [];
     for (const [dest, src] of Object.entries(BETA_SUBSTITUTE)) {
@@ -153,10 +176,18 @@ function main() {
       .split(/\r?\n/).filter(Boolean)
       .filter((f) => !BETA_EXCLUDE.includes(f)
         && !Object.keys(BETA_SUBSTITUTE).includes(f)
-        && !Object.values(BETA_SUBSTITUTE).includes(f));
+        && !Object.values(BETA_SUBSTITUTE).includes(f)
+        // a docs/ file that is absent BECAUSE it is not on the allowlist is
+        // an intended difference, not drift - the guard has to know about
+        // the deny-by-default rule or it fires on every correct run
+        && !(f.startsWith("docs/") && !BETA_DOCS_ALLOW.includes(f)));
     if (drift.length) {
-      console.error("\nAborting — snapshot differs from main beyond the exclusion list:\n  " + drift.join("\n  "));
-      process.exit(1);
+      /* THROW, do not process.exit. Exiting here skips the finally below,
+         which leaves the temporary worktree registered - and the next run
+         then dies on "beta-sync is already used by worktree at ...", so one
+         legitimate abort blocks every future sync until someone prunes it by
+         hand. An abort must clean up after itself. */
+      throw new Error("snapshot differs from main beyond the exclusion list:\n  " + drift.join("\n  "));
     }
 
     if (dryRun) { console.log("\n--dry-run: nothing pushed."); return; }
@@ -174,4 +205,9 @@ function main() {
   }
 }
 
-main();
+try {
+  main();
+} catch (e) {
+  console.error("\nAborting — " + ((e && e.message) || e));
+  process.exit(1);
+}
