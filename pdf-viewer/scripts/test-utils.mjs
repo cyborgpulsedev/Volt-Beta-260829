@@ -397,6 +397,54 @@ t("aboutChangelogHtml: escapes the version and bullet content", (() => {
 t("aboutChangelogHtml: section without bullets → empty", U.aboutChangelogHtml("## 2.0.0\nplain text, no bullets\n", "2.0.0") === "");
 t("aboutChangelogHtml: empty md → empty", U.aboutChangelogHtml("", "1.0.0") === "" && U.aboutChangelogHtml(null, "1.0.0") === "");
 
+// Inline markdown inside changelog bullets. The shipped About dialog printed
+// literal "**" around every bold lead-in, and showed only each bullet's FIRST
+// line because hard-wrapped continuations were dropped. Both views share
+// _changelogBulletList, so both are asserted here.
+t("changelog bullets: **bold** becomes <strong>, no literal asterisks", (() => {
+  const h = U.aboutChangelogHtml("## 2.0.0\n- **Bold lead.** then prose\n", "2.0.0");
+  return h.includes("<strong>Bold lead.</strong>") && !h.includes("**");
+})());
+t("changelog bullets: `code` becomes <code>", (() => {
+  const h = U.aboutChangelogHtml("## 2.0.0\n- run `npm test` first\n", "2.0.0");
+  return h.includes("<code>npm test</code>") && !h.includes("`");
+})());
+t("changelog bullets: bold in the banner tooltip too (shared path)", (() => {
+  const h = U.changelogHtml("## 2.0.0\n- **Bold lead.** rest\n", "1.0.0", "2.0.0");
+  return h.includes("<strong>Bold lead.</strong>") && !h.includes("**");
+})());
+t("changelog bullets: HTML in the source is still escaped, even with bold", (() => {
+  const h = U.aboutChangelogHtml("## 2.0.0\n- **<script>alert(1)</script>** and <b>x</b>\n", "2.0.0");
+  return h.includes("&lt;script&gt;") && !h.includes("<script>") && !h.includes("<b>x</b>");
+})());
+t("changelog bullets: unmatched / stray asterisks pass through, markup stays balanced", (() => {
+  const h = U.aboutChangelogHtml("## 2.0.0\n- a ** b\n- half **open and *lone\n", "2.0.0");
+  const opens = (h.match(/<strong>/g) || []).length, closes = (h.match(/<\/strong>/g) || []).length;
+  const li = (h.match(/<li>/g) || []).length, liC = (h.match(/<\/li>/g) || []).length;
+  return opens === closes && li === 2 && liC === 2 && h.includes("a ** b");
+})());
+t("changelog bullets: hard-wrapped continuation lines join the bullet", (() => {
+  const h = U.aboutChangelogHtml("## 2.0.0\n- **Lead.** The tool works by hitting a\n  line in the text layer.\n- second\n", "2.0.0");
+  return h.includes("hitting a line in the text layer.") && (h.match(/<li>/g) || []).length === 2;
+})());
+t("bulletItems: joins indented continuations, ignores unindented text", (() => {
+  const items = U.bulletItems("- one\n  wrapped\n- two\nplain line\n   \n- three");
+  return JSON.stringify(items) === JSON.stringify(["one wrapped", "two", "three"]);
+})());
+
+// inline() link rendering — two passes used to re-linkify the href the first
+// had just emitted, yielding nested anchors inside an href attribute.
+t("inline: markdown link renders exactly one well-formed anchor", (() => {
+  const h = U.inline("see [docs](https://x.com/a) here");
+  return h === 'see <a href="https://x.com/a" target="_blank" rel="noopener">docs</a> here';
+})());
+t("inline: bare URL still autolinks", U.inline("go https://x.com/a now") ===
+  'go <a href="https://x.com/a" target="_blank" rel="noopener">https://x.com/a</a> now');
+t("inline: link whose label is a URL does not nest anchors", (() => {
+  const h = U.inline("[https://a.com](https://b.com)");
+  return (h.match(/<a /g) || []).length === 1 && h.includes('href="https://b.com"');
+})());
+
 // ── page-selection range math (lo/hi clamping) ──
 t("clampedRange: ordered and reversed give the same lo/hi", (() => {
   const a = U.clampedRange(2, 5, 1, 6), b = U.clampedRange(5, 2, 1, 6);
@@ -438,6 +486,59 @@ t("thumbScale: zero / missing width falls back to 600pt", U.thumbScale(0) === 0.
 t("thumbScale: custom target honored (and cap still wins)", U.thumbScale(1200, 0.22, 240) === 0.2 && U.thumbScale(612, 0.22, 240) === 0.22);
 
 // ── restore-summary rows ──
+/* backupMatch — the comparison behind "does this backup belong to this
+   document", and the reason a refusal gives. The reasons matter as much as
+   the verdicts: the prompt used to say "this backup is for report.pdf, but
+   report.pdf is open" whenever the names agreed and the content did not. */
+t("backupMatch: identical fingerprints match", U.backupMatch({
+  backupName: "a.pdf", docName: "a.pdf", backupFp: "abc", docFp: "abc" }).match === true);
+t("backupMatch: a renamed copy still matches on fingerprint", U.backupMatch({
+  backupName: "renamed.pdf", docName: "original.pdf", backupFp: "abc", docFp: "abc" }).match === true);
+t("backupMatch: same name, different content is refused as content", (() => {
+  const m = U.backupMatch({ backupName: "a.pdf", docName: "a.pdf", backupFp: "abc", docFp: "xyz" });
+  return m.match === false && m.reason === "fingerprint" && m.detail === "content";
+})());
+t("backupMatch: different name AND content refuses as document", (() => {
+  const m = U.backupMatch({ backupName: "a.pdf", docName: "b.pdf", backupFp: "abc", docFp: "xyz" });
+  return m.match === false && m.detail === "document";
+})());
+t("backupMatch: no fingerprints falls back to name + size + pages", U.backupMatch({
+  backupName: "a.pdf", docName: "a.pdf", backupSize: 10, backupPages: 2,
+  docSize: 10, docPages: 2, hasDoc: true }).match === true);
+t("backupMatch: identity fallback names the field that disagreed", (() => {
+  const sz = U.backupMatch({ backupName: "a.pdf", docName: "a.pdf", backupSize: 10, backupPages: 2,
+    docSize: 99, docPages: 2, hasDoc: true });
+  const pg = U.backupMatch({ backupName: "a.pdf", docName: "a.pdf", backupSize: 10, backupPages: 2,
+    docSize: 10, docPages: 9, hasDoc: true });
+  const nm = U.backupMatch({ backupName: "a.pdf", docName: "b.pdf", backupSize: 10, backupPages: 2,
+    docSize: 10, docPages: 2, hasDoc: true });
+  return sz.detail === "size" && pg.detail === "pages" && nm.detail === "name";
+})());
+t("backupMatch: a document open with no size fails identity, not name-only", (() => {
+  // the original comparison did Number(x) === Number(undefined) -> NaN, false;
+  // sliding down to the name check here would silently loosen the match
+  const m = U.backupMatch({ backupName: "a.pdf", docName: "a.pdf", backupSize: 10, backupPages: 2,
+    docSize: undefined, docPages: undefined, hasDoc: true });
+  return m.match === false && m.reason === "identity";
+})());
+t("backupMatch: a pre-v5 backup carrying only a name matches on the name", (() => {
+  const ok = U.backupMatch({ backupName: "a.pdf", docName: "A.PDF" });
+  const no = U.backupMatch({ backupName: "a.pdf", docName: "b.pdf" });
+  return ok.match === true && ok.reason === "name" && no.match === false;
+})());
+t("backupMismatchWhy: same-name content clash says edited, not 'other document'", (() => {
+  const w = U.backupMismatchWhy("fingerprint", "content");
+  return /edited/.test(w) && !/for another document/.test(w);
+})());
+t("backupMismatchWhy: every refusal reason produces a sentence", (() => {
+  const cases = [["fingerprint", "content"], ["fingerprint", "document"],
+    ["identity", "name"], ["identity", "size"], ["identity", "pages"], ["name", "name"]];
+  return cases.every(([r, d]) => {
+    const w = U.backupMismatchWhy(r, d);
+    return typeof w === "string" && w.length > 20 && w.trim().endsWith(".");
+  });
+})());
+
 t("restoreSummaryRows: annotation line with marks + notes", (() => {
   const rows = U.restoreSummaryRows({ annCount: 3, notes: 1 });
   return rows[0].k === "Annotations" && rows[0].v === "3 annotations — 2 marks · 1 note";

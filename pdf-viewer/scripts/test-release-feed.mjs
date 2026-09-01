@@ -215,17 +215,23 @@ async function main() {
   if (armed) note("updater signature verification ARMED — " + armed + " (the feed's installer must be Authenticode-verified)");
   else note("no publisherName in app-update.yml — updater skips signature verification (unsigned build)");
 
+  // SAFETY: the round-trip must never actually INSTALL the app — the feed's
+  // installer is a real one. Sample the install directory BEFORE the run: a
+  // bare existence check afterwards cannot tell "the round-trip installed it"
+  // from "this machine already had Volt installed", so it failed the gate for
+  // everyone who actually runs Volt — the owner and every tester included.
+  const installProbe = join(process.env.LOCALAPPDATA || "", "Programs", "Volt");
+  const installedBefore = existsSync(installProbe);
+  if (installedBefore) note("Volt is already installed at " + installProbe + " — the round-trip must not modify it");
+
   // NOTE: never process.exit() inside the try — the finally below MUST run to
   // restore the build's app-update.yml (process.exit skips finally blocks).
   let verdict = 1;
   try {
     const { code, text } = await runApp(feedUrl, adv);
-    // SAFETY: the round-trip must never actually INSTALL the app — the feed's
-    // installer is a real one. If an install dir materialized, the app quit
-    // path ran the installer (autoInstallOnAppQuit regressed) — fail loudly
-    // instead of silently leaving Volt installed on the machine.
-    const installProbe = join(process.env.LOCALAPPDATA || "", "Programs", "Volt");
-    if (existsSync(installProbe)) {
+    // Only an install dir that APPEARED during the run means the quit path ran
+    // the installer (autoInstallOnAppQuit regressed) — fail loudly then.
+    if (!installedBefore && existsSync(installProbe)) {
       throw new Error("GATE SAFETY VIOLATION: " + installProbe + " appeared — the round-trip triggered a real install! " +
         "autoInstallOnAppQuit must stay disabled in --smoke-feed.");
     }

@@ -4,6 +4,27 @@ Each release is a `## x.y.z` section. The version banner tooltip shows the
 sections newer than the installed bundle, so a pending update tells you what
 changed before you restart.
 
+## 1.0.18
+
+**What Volt tells you about itself.** The About box and the update tooltip
+both show the release notes for your version, and both were showing them
+wrong.
+
+- **The bold headings were printed as raw asterisks.** Every entry opens with
+  a short bold summary, and the two asterisks that mark it were showing up as
+  literal text instead of making the words bold — so the notes read as source
+  code rather than as writing.
+- **Every entry stopped mid-sentence.** Only the first line of each note was
+  ever shown. Because the notes are written wrapped at a fixed width, that cut
+  each one off after roughly twelve words, often in the middle of a clause.
+  Entries now appear in full.
+- **Links the AI writes are clickable again.** A link in an assistant reply
+  came out as broken markup rather than something you could follow. The same
+  underlying renderer was at fault, so fixing the notes fixed the chat too.
+
+Both views are drawn by the same code on purpose, so what you read in the
+About box and what you read in the update tooltip can never drift apart.
+
 ## 1.0.17
 
 **The text tool.** A tester reported it "didn't do anything". Three separate

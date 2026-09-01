@@ -2850,6 +2850,31 @@ body.resizing-sidebar * { cursor: ew-resize !important; }
 .about-changelog ul { margin: 0; padding-left: 16px; }
 .about-changelog li + li { margin-top: 2px; }
 
+/* The privacy statement shares the changelog panel's surface so the About
+   dialog reads as one card rather than two. It scrolls on its own: the text
+   is longer than the rest of the dialog combined, and a modal that grows past
+   the viewport is worse than one that scrolls inside. */
+/* No max-height here on purpose. The modal card is already capped at 88vh
+   and scrolls; giving this panel its own scroller too put a scrollbar inside
+   a scrollbar inside a dialog, and the statement is a fixed, known length -
+   it does not need one. */
+.about-privacy {
+  margin-top: 12px;
+  background: var(--bg-3);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+.about-privacy h4 { font-size: 12px; color: var(--accent-2); margin: 10px 0 4px; }
+.about-privacy h4:first-child { margin-top: 0; }
+.about-privacy p { margin: 0 0 4px; }
+.about-privacy ul { margin: 0; padding-left: 16px; }
+.about-privacy li + li { margin-top: 6px; }
+.about-privacy b { color: var(--text); font-weight: 600; }
+
 /* ── Signature modal ─────────────────────────────────────────── */
 .sig-saved {
   display: flex;

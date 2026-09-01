@@ -896,6 +896,12 @@
     _openAbout() {
       const el = this.elements;
       if (!el.aboutModal) return;
+      /* Start at the top. Focus moves to the Close button when the modal
+         opens and the browser scrolls it into view, so a card long enough to
+         scroll opened part-way down - showing the middle of the privacy text
+         rather than the version number the dialog exists to show. */
+      const card = el.aboutModal.querySelector(".modal-card");
+      if (card) requestAnimationFrame(() => { card.scrollTop = 0; });
       el.aboutVersion.textContent = window.__VOLT_VERSION || "dev";
       const cache = (this._verServed && this._verServed.startsWith("volt-")) ? this._verServed : null;
       el.aboutEngine.textContent = (global.voltDesktop ? "Electron desktop" : "Browser / PWA") + (cache ? " · " + cache : "");
@@ -5876,18 +5882,20 @@
         be fingerprinted, so those fall back to name + size + pages, and older
         backups (name only) to the name heuristic. */
     _matchesBackup(data, backupName, current) {
-      const bf = data && typeof data === "object" && !Array.isArray(data) ? data.fileFingerprint : undefined;
-      const cf = this.currentDocInfo ? this.currentDocInfo.fingerprint : undefined;
-      if (typeof bf === "string" && typeof cf === "string") {
-        return bf === cf;
-      }
-      if (data && typeof data === "object" && !Array.isArray(data) &&
-          data.fileSize !== undefined && data.filePages !== undefined && this.currentDocInfo) {
-        return this._namesMatch(backupName, current) &&
-          Number(data.fileSize) === Number(this.currentDocInfo.size) &&
-          Number(data.filePages) === Number(this.currentDocInfo.pages);
-      }
-      return this._namesMatch(backupName, current);
+      return this._backupMatch(data, backupName, current).match;
+    },
+    /** The same comparison, with the reason it failed — the prompt needs it,
+        and computing it twice would let the two drift apart. */
+    _backupMatch(data, backupName, current) {
+      const obj = data && typeof data === "object" && !Array.isArray(data) ? data : {};
+      const doc = this.currentDocInfo || {};
+      return Utils.backupMatch({
+        backupName, backupSize: obj.fileSize, backupPages: obj.filePages,
+        backupFp: obj.fileFingerprint,
+        docName: current,
+        docSize: doc.size, docPages: doc.pages, docFp: doc.fingerprint,
+        hasDoc: !!this.currentDocInfo,
+      });
     },
     async _restoreBackup(file) {
       try {
@@ -5896,11 +5904,21 @@
         this.toast("Restore failed: " + (e.message || e), "error");
       }
     },
-    _showRestorePrompt(backupName, currentName) {
+    /** `m` is the failed Utils.backupMatch result; without it the prompt
+        falls back to the old wording. It exists because "this backup is for
+        report.pdf, but report.pdf is open" is what the user saw whenever the
+        names agreed and the CONTENT did not — a sentence that reads like a
+        bug and gives no basis for deciding whether importing anyway is safe. */
+    _showRestorePrompt(backupName, currentName, m) {
       const el = this.elements;
       const esc = Utils.esc;
+      const why = m && !m.match ? Utils.backupMismatchWhy(m.reason, m.detail) : "";
+      const sameName = currentName && this._namesMatch(backupName, currentName);
+      const lead = sameName
+        ? `<b>${esc(currentName)}</b> is open, but this backup does not match it.`
+        : `This backup is for <b>${esc(backupName)}</b>, but <b>${esc(currentName)}</b> is open.`;
       el.restoreMsg.innerHTML = currentName
-        ? `This backup is for <b>${esc(backupName)}</b>, but <b>${esc(currentName)}</b> is open.<br><br>Open the matching PDF to restore its annotations, bookmarks, AI overrides, and chat there — or import into the current document anyway.`
+        ? `${lead}${why ? `<br><br>${esc(why)}` : ""}<br><br>Importing anyway applies the backup's annotations, bookmarks, AI overrides, and chat to the document that is open now. They may not line up with the page they were made on.`
         : `This backup is for <b>${esc(backupName)}</b>.<br><br>Open that PDF to restore its annotations, bookmarks, AI overrides, and chat — nothing is applied until a document is open.`;
       el.restoreAnyway.hidden = !currentName;
       this._openModal(el.restoreModal);
@@ -6052,10 +6070,11 @@
       await (this._fpPromise || Promise.resolve());
       const backupName = (data && typeof data === "object" && !Array.isArray(data) && data.file) ? String(data.file) : "";
       const current = this.currentDocInfo ? this.currentDocInfo.name : "";
-      if (!backupName || (current && this._matchesBackup(data, backupName, current))) {
+      const m = backupName && current ? this._backupMatch(data, backupName, current) : null;
+      if (!backupName || (m && m.match)) {
         this._applyPendingBackup(); // same document (or a legacy backup) — import right away
       } else {
-        this._showRestorePrompt(backupName, current);
+        this._showRestorePrompt(backupName, current, m);
       }
     },
     async _openUrl() {

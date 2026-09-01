@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened Runtime entitlements for the Developer ID build.
+
+  Hardened Runtime is mandatory for notarization, and it switches OFF several
+  things Chromium needs by default. Each entitlement below is here because
+  without it the app crashes or a feature dies, not for good measure:
+
+    allow-jit + allow-unsigned-executable-memory
+      V8 compiles JavaScript to machine code at runtime. Hardened Runtime
+      forbids that outright, so the app fails to launch at all.
+
+    disable-library-validation
+      The vendored libraries (pdf.js, pdf-lib, the Tesseract WASM runtime)
+      ship unpacked outside the asar, and Electron loads its own framework
+      dylibs. Library validation requires every loaded library to be signed
+      by the same Team ID, which these are not.
+
+    device.audio-input
+      Volt's read-aloud and dictation features use the microphone. Without
+      this the OS denies the device and the feature silently does nothing.
+      NSMicrophoneUsageDescription in Info.plist (set via mac.extendInfo)
+      supplies the sentence macOS shows when it asks the user.
+
+  Deliberately NOT here: app-sandbox. Volt opens and writes PDFs anywhere the
+  user points it, watches files on disk for external edits, and talks to a
+  local Ollama server on localhost. Sandboxing all of that is a Mac App Store
+  problem, and the App Store cannot ship an app that updates itself - which
+  is the whole point of the release feed.
+-->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
+</dict>
+</plist>

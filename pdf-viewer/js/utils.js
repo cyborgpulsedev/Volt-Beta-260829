@@ -436,8 +436,16 @@
         with "- " or "* ", returned WITHOUT the marker. The caller decides how
         to render them (the version banner / About modal escape + wrap). */
     bulletItems(body) {
-      return String(body == null ? "" : body).split(/\r?\n/).map((l) => l.trim())
-        .filter((l) => /^[-*]\s+/.test(l)).map((l) => l.replace(/^[-*]\s+/, ""));
+      const out = [];
+      for (const raw of String(body == null ? "" : body).split(/\r?\n/)) {
+        const t = raw.trim();
+        if (/^[-*]\s+/.test(t)) { out.push(t.replace(/^[-*]\s+/, "")); continue; }
+        // A hard-wrapped bullet continues on the next INDENTED line. Without
+        // this, every bullet in the real CHANGELOG rendered as its first line
+        // only, cut off mid-sentence. An unindented line is not part of it.
+        if (out.length && t && /^\s/.test(raw)) out[out.length - 1] += " " + t;
+      }
+      return out;
     },
 
     /** Shared bullet-list HTML for a changelog section body: escaped <li>
@@ -447,7 +455,10 @@
     _changelogBulletList(body) {
       const items = Utils.bulletItems(body);
       if (!items.length) return "";
-      return "<ul>" + items.map((i) => "<li>" + Utils.esc(i) + "</li>").join("") + "</ul>";
+      // esc FIRST (the changelog is a file that may contain HTML), THEN the
+      // shared inline pass, so **bold** / `code` / links render as markup
+      // instead of showing their literal asterisks in the About dialog.
+      return "<ul>" + items.map((i) => "<li>" + Utils.inline(Utils.esc(i)) + "</li>").join("") + "</ul>";
     },
 
     /** Build the version-banner tooltip's HTML: the CHANGELOG sections newer
@@ -526,6 +537,65 @@
       return Math.min(cap, target / (pageWidth || fallback));
     },
 
+    /** Does a backup belong to the open document, and if not, WHY not.
+        Splitting the "why" out matters because the answer drives what the
+        user is told: "this backup is for another document" is unhelpful when
+        both files are called report.pdf, and actively misleading when the
+        real answer is that the document has been edited since the backup was
+        taken. PURE — never throws, no DOM, no Volt state.
+
+        Fields are the plain facts: the backup's file/fileSize/filePages/
+        fileFingerprint, and the open document's name/size/pages/fingerprint.
+
+        Returns { match, reason, detail }. `reason` is one of:
+          "fingerprint"  both sides fingerprinted and agree (or disagree)
+          "identity"     no fingerprints — name + size + pages compared
+          "name"         a pre-v5 backup carrying only a filename
+        `detail` names the specific field that disagreed, for the message. */
+    backupMatch({ backupName = "", backupSize, backupPages, backupFp,
+                  docName = "", docSize, docPages, docFp, hasDoc = false } = {}) {
+      const namesMatch = String(backupName || "").trim().toLowerCase() ===
+        String(docName || "").trim().toLowerCase();
+
+      /* The strong check. A renamed copy of the same PDF still matches (the
+         name is not consulted); a file edited since the backup does not. */
+      if (typeof backupFp === "string" && typeof docFp === "string") {
+        return backupFp === docFp
+          ? { match: true, reason: "fingerprint", detail: "" }
+          : { match: false, reason: "fingerprint", detail: namesMatch ? "content" : "document" };
+      }
+
+      /* No fingerprint on one side — a text-less document (a pure scan) or a
+         backup from before fingerprints existed. Fall back to the three
+         weaker facts, and report which one actually disagreed. */
+      /* hasDoc, not "docSize is defined": a document open with no recorded
+         size must still FAIL this branch rather than sliding down to the
+         name-only check, which is what the original comparison did. */
+      if (backupSize !== undefined && backupPages !== undefined && hasDoc) {
+        if (!namesMatch) return { match: false, reason: "identity", detail: "name" };
+        if (Number(backupSize) !== Number(docSize)) return { match: false, reason: "identity", detail: "size" };
+        if (Number(backupPages) !== Number(docPages)) return { match: false, reason: "identity", detail: "pages" };
+        return { match: true, reason: "identity", detail: "" };
+      }
+
+      return namesMatch
+        ? { match: true, reason: "name", detail: "" }
+        : { match: false, reason: "name", detail: "name" };
+    },
+
+    /** Plain-language explanation of a failed backupMatch, for the restore
+        prompt. Says what Volt compared and what it found, so the choice to
+        import anyway is an informed one rather than a shrug. */
+    backupMismatchWhy(reason, detail) {
+      if (reason === "fingerprint" && detail === "content") {
+        return "The names match, but the page text does not — this document has been edited, or it is a different version of the same file, since the backup was made.";
+      }
+      if (reason === "fingerprint") return "The page text of the two files does not match.";
+      if (detail === "size") return "The names match, but the file size does not — this is a different version of the file.";
+      if (detail === "pages") return "The names match, but the page count does not.";
+      return "The file names do not match.";
+    },
+
     /** The post-restore summary card's rows (what the restore actually
         landed), given the plain facts — the DOM / Volt module reads stay in
         app.js. Returns [{k, v, title}] in display order. PURE — never throws.
@@ -594,8 +664,13 @@
         .replace(/`([^`]+)`/g, "<code>$1</code>")
         .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
         .replace(/\*([^*]+)\*/g, "<em>$1</em>")
-        .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
-        .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+        // ONE pass over both link forms. As two passes, the bare-URL pass
+        // re-linkified the href the markdown-link pass had just emitted and
+        // produced nested, malformed anchors.
+        .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)|(https?:\/\/[^\s<]+)/g,
+          (m, txt, url, bare) => bare
+            ? '<a href="' + bare + '" target="_blank" rel="noopener">' + bare + "</a>"
+            : '<a href="' + url + '" target="_blank" rel="noopener">' + txt + "</a>");
     },
 
     /* ── PDF security + redaction (pure; used by Volt.Secure and the

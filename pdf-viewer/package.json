@@ -1,7 +1,7 @@
 {
   "name": "volt-pdf-reader",
   "productName": "Volt",
-  "version": "1.0.17",
+  "version": "1.0.18",
   "description": "Fast, private, ad-free PDF reader/editor with AI built in — powered by your local LLM.",
   "author": "Volt",
   "main": "main.js",
@@ -25,6 +25,7 @@
     "check:launchers": "node ../scripts/check-launchers.cjs",
     "gen:sw": "node scripts/gen-sw.mjs --write",
     "check:sw": "node scripts/gen-sw.mjs --check",
+    "check:syntax": "node scripts/check-syntax.mjs",
     "feed:watch": "node scripts/check-feed-drift.mjs",
     "feed:check": "node scripts/check-feed-drift.mjs --once",
     "auto:vendor": "node scripts/auto-update.cjs --smoke-exe \"node_modules/electron/dist/electron.exe\"",
@@ -82,7 +83,35 @@
         "rfc3161TimeStampServer": "http://timestamp.digicert.com"
       }
     },
-    "linux": {
+    "mac": {
+    "target": [
+      { "target": "dmg", "arch": ["arm64", "x64"] },
+      { "target": "zip", "arch": ["arm64", "x64"] }
+    ],
+    "icon": "assets/icon-512.png",
+    "category": "public.app-category.productivity",
+    "artifactName": "Volt-${version}-${arch}.${ext}",
+    "darkModeSupport": true,
+    "hardenedRuntime": true,
+    "gatekeeperAssess": false,
+    "entitlements": "build/entitlements.mac.plist",
+    "entitlementsInherit": "build/entitlements.mac.plist",
+    "notarize": true,
+    "extendInfo": {
+      "NSMicrophoneUsageDescription": "Volt uses the microphone only for dictation into the AI chat, and only while you hold the mic button. Nothing is recorded or sent anywhere.",
+      "NSCameraUsageDescription": "Volt does not use the camera.",
+      "LSMinimumSystemVersion": "11.0"
+    }
+  },
+  "dmg": {
+    "artifactName": "Volt-${version}-${arch}.${ext}",
+    "title": "Volt ${version}",
+    "contents": [
+      { "x": 140, "y": 200, "type": "file" },
+      { "x": 400, "y": 200, "type": "link", "path": "/Applications" }
+    ]
+  },
+  "linux": {
       "target": [
         {
           "target": "AppImage",

@@ -447,6 +447,8 @@ function autoSaveDownloads() {
   });
 }
 
+let servedPort = 0;   // the local static server's port, kept for macOS reopen
+
 async function createWindow(port) {
   // restore the last-used size/position (validated against the CURRENT display
   // layout so a saved position on a now-unplugged monitor can't strand the
@@ -526,7 +528,10 @@ async function createWindow(port) {
 
   // system tray: the Volt bolt, with restore/quit — clicking it fronts the
   // window (skipped in smoke runs; guarded so a reload never doubles it)
-  if (!SMOKE && !tray) {
+  /* Skipped on macOS: the dock icon already plays this role, and the menu
+     bar wants a small monochrome template image - handed a Windows .ico it
+     renders an oversized colour blob that ignores light/dark. */
+  if (!SMOKE && !tray && process.platform !== "darwin") {
     try {
       tray = new Tray(join(APP_ROOT, "assets", "volt.ico"));
       tray.setToolTip("Volt — PDF Reader & AI");
@@ -810,6 +815,46 @@ async function realKeyStage(w) {
       restore.pendingCleared = rclosed.pending === null;
       restore.inertCleared = rclosed.inert === false;
       restore.focusRestored = rclosed.active === "btn-help";
+      /* 6) WHAT THE PROMPT SAYS. The refusal used to read "This backup is for
+         report.pdf, but report.pdf is open" whenever the names agreed and the
+         page content did not — a sentence that reads like a bug and gives no
+         basis for deciding whether to import anyway. Both cases are driven
+         here because the wording branches on which one it is; the pure
+         comparison behind it is unit-tested, the assembly is not. */
+      const rmsg = await js(`(async () => {
+        const V = window.Volt.App;
+        const open = async (backup) => {
+          V._matchAndApplyBackup(backup);
+          const rm = V.elements.restoreModal;
+          const t = Date.now();
+          while (Date.now() - t < 5000 && rm.hidden) await new Promise((r) => setTimeout(r, 50));
+          const txt = V.elements.restoreMsg.textContent;
+          V._closeModal(rm);
+          await new Promise((r) => setTimeout(r, 60));
+          return txt;
+        };
+        const base = { app: "volt", version: 6, fileSize: 1, filePages: 1,
+          annotations: [], aiSettings: {}, chatHistory: [] };
+        // same name, different content — the case the old wording mangled
+        const sameName = await open(Object.assign({}, base,
+          { file: V.currentDocInfo.name, fileFingerprint: "0000000000000000" }));
+        const otherName = await open(Object.assign({}, base,
+          { file: "Some-Other.pdf", fileFingerprint: "0000000000000000" }));
+        return { sameName, otherName, docName: V.currentDocInfo.name };
+      })()`);
+      restore.msgSameName = rmsg.sameName;
+      // it must NOT claim the backup belongs to a different file when the
+      // names are identical, and it must say what actually differs
+      restore.sameNameNotContradictory =
+        rmsg.sameName.indexOf("is for " + rmsg.docName + ", but") === -1 &&
+        /does not match it/.test(rmsg.sameName) &&
+        /edited|different version/.test(rmsg.sameName);
+      // the genuinely-different-document case still names both files
+      restore.otherNameNamesBoth = rmsg.otherName.indexOf("Some-Other.pdf") !== -1 &&
+        rmsg.otherName.indexOf(rmsg.docName) !== -1;
+      // and either way the user is told what importing anyway would do
+      restore.saysWhatImportDoes = /Importing anyway/.test(rmsg.sameName) &&
+        /Importing anyway/.test(rmsg.otherName);
     } catch (e) {
       restore.error = String((e && e.message) || e);
     }
@@ -818,7 +863,9 @@ async function realKeyStage(w) {
       restore.tabSecond === true && restore.tabThird === true &&
       restore.tabWrapsFirst === true && restore.shiftTabWrapsLast === true &&
       restore.escapeClosed === true && restore.pendingCleared === true &&
-      restore.inertCleared === true && restore.focusRestored === true && !restore.error;
+      restore.inertCleared === true && restore.focusRestored === true &&
+      restore.sameNameNotContradictory === true && restore.otherNameNamesBoth === true &&
+      restore.saysWhatImportDoes === true && !restore.error;
     out.restore = restore;
 
     // ── pages-manager staged-plan undo (native Ctrl+Z) ──────────
@@ -1803,7 +1850,13 @@ function runSmokeTest(w) {
             : realFetch(url, opts);
           try {
             Volt.App._showVersionBanner("volt-probe-stale-2", "1.1.0");
-            await new Promise((r) => setTimeout(r, 60));
+            // the banner fills its changelog from a fetch - wait for the text
+            // rather than for 60ms, which only ever held on a quick machine
+            const vb0 = Date.now();
+            while (Date.now() - vb0 < 10000 &&
+                   String(Volt.App._verChangelogHtml || "").indexOf("brand new feature") === -1) {
+              await new Promise((r) => setTimeout(r, 40));
+            }
             const tipHtml = (Volt.App._verChangelogHtml || "");
             verBanner.changelogDiff = tipHtml.includes("brand new feature") && !tipHtml.includes("old stuff") &&
               !!vTip && vTip.innerHTML.includes("brand new feature");
@@ -1898,9 +1951,42 @@ function runSmokeTest(w) {
           aboutModal.versionShown = !!versionEl && versionEl.textContent.trim() === (window.__VOLT_VERSION || "dev");
           aboutModal.engineShown = !!engineEl &&
             (engineEl.textContent.includes("Electron desktop") || engineEl.textContent.includes("Browser / PWA"));
-          await new Promise((r) => setTimeout(r, 150)); // the changelog fetch lands async
-          aboutModal.changelogServed = !!box && box.hidden === false &&
+          /* The changelog arrives over a fetch. 150ms was always enough on
+             this machine and ran out on the CI runner, so the probe read an
+             empty box and reported a missing changelog that was merely still
+             in flight. Wait for the content itself. */
+          const changelogOk = () => !!box && box.hidden === false &&
             box.innerHTML.includes("What's new in v" + EXPECT_VERSION) && box.innerHTML.includes("<li>");
+          const ab0 = Date.now();
+          while (Date.now() - ab0 < 10000 && !changelogOk()) await new Promise((r) => setTimeout(r, 50));
+          aboutModal.changelogServed = changelogOk();
+          /* v1.0.17 shipped with every bold lead-in showing its literal "**".
+             No raw asterisks may survive; and when THIS version's section
+             actually uses bold, it has to arrive as real markup. Reading the
+             section decides the second half, so a future release whose bullets
+             carry no emphasis doesn't fail this on style alone. */
+          const aboutMd = await fetch("CHANGELOG.md?_t=" + Date.now())
+            .then((r) => (r.ok ? r.text() : "")).catch(() => "");
+          const aboutSec = (aboutMd.split("## " + EXPECT_VERSION)[1] || "").split(NL10 + "## ")[0];
+          aboutModal.changelogFormatted = !!box && !box.innerHTML.includes("**") &&
+            (!aboutSec.includes("**") || box.innerHTML.includes("<strong>"));
+          /* The privacy statement is a claim Volt makes about itself, so it
+             has to be present and it has to keep naming the caveats. A
+             statement that quietly loses its "but the AI host sees your
+             document" paragraph is worse than none: every other line in it
+             stops being trustworthy the first time a user finds out the hard
+             way. Assert the reassurance AND all three exceptions. */
+          const priv = document.getElementById("about-privacy");
+          const ptxt = priv ? priv.textContent : "";
+          aboutModal.privacyShown = !!priv && priv.hidden === false && ptxt.length > 400;
+          aboutModal.privacyClaimsLocal = /never uploaded/i.test(ptxt) &&
+            /no telemetry/i.test(ptxt);
+          aboutModal.privacyCaveatAi = /hosted provider/i.test(ptxt) &&
+            /sends part of that document/i.test(ptxt) && /local model/i.test(ptxt);
+          aboutModal.privacyCaveatFeedback = /feedback/i.test(ptxt) &&
+            /file name of the document/i.test(ptxt) && /never its contents/i.test(ptxt);
+          aboutModal.privacyCaveatUpdates = /newer version exists/i.test(ptxt) &&
+            /IP address/i.test(ptxt);
           closeBtn.click(); // the real Close wiring
           aboutModal.closesClean = !!am && am.hidden === true && getComputedStyle(am).display === "none" &&
             !!appEl && appEl.inert === false;
@@ -1922,7 +2008,11 @@ function runSmokeTest(w) {
         aboutModal.allOk = aboutModal.present === true && aboutModal.hiddenBoot === true &&
           aboutModal.opened === true && aboutModal.inertWhileOpen === true &&
           aboutModal.versionShown === true && aboutModal.engineShown === true &&
-          aboutModal.changelogServed === true && aboutModal.closesClean === true &&
+          aboutModal.privacyShown === true && aboutModal.privacyClaimsLocal === true &&
+          aboutModal.privacyCaveatAi === true && aboutModal.privacyCaveatFeedback === true &&
+          aboutModal.privacyCaveatUpdates === true &&
+          aboutModal.changelogServed === true && aboutModal.changelogFormatted === true &&
+          aboutModal.closesClean === true &&
           aboutModal.escaped === true && !aboutModal.error;
         // ── document fingerprint (backup matching) ────────────
         // every open document gets a content fingerprint (hash of sampled page
@@ -2084,6 +2174,22 @@ function runSmokeTest(w) {
             // must auto-dismiss after a few seconds, not linger
             const rs = { error: null };
             try {
+              /* Wait for the fingerprint before snapshotting it. This stage
+                 failed on CI and passed here, and the reason was NOT that the
+                 wait below was too short — it was that the backup got built
+                 from a document whose fingerprint had not finished computing.
+                 The reopened sample sets its NAME as soon as the doc info
+                 lands, which is what the previous stage waits for, but the
+                 content fingerprint resolves separately and later. Snapshot
+                 too early and the backup carries a stale (or missing)
+                 fingerprint, the match against the settled one fails, and the
+                 app correctly refuses to restore a backup that looks like it
+                 belongs to a different document. Everything then reads as
+                 broken — no card, no bookmarks — with nothing thrown.
+
+                 On a fast machine the fingerprint is always ready by now,
+                 which is exactly why this only ever bit the slower CI VM. */
+              await (Volt.App._fpPromise || Promise.resolve());
               const list = Volt.Ann.list;
               const json = JSON.stringify({ app: "volt", version: 6, file: Volt.App.currentDocInfo.name,
                 fileSize: Volt.App.currentDocInfo.size, filePages: Volt.App.currentDocInfo.pages,
@@ -2097,6 +2203,12 @@ function runSmokeTest(w) {
               const rsEl = document.getElementById("restore-summary");
               const rs0 = Date.now();
               while (Date.now() - rs0 < 8000 && rsEl.hidden) await new Promise((r) => setTimeout(r, 100));
+              /* A refused restore opens the "this backup is for another
+                 document" prompt and applies nothing. Without this key the
+                 failure looks like a rendering problem and reads as six
+                 unrelated false booleans; with it, the log names the cause. */
+              const rsPrompt = document.getElementById("restore-modal");
+              rs.noMismatchPrompt = !!rsPrompt && rsPrompt.hidden === true;
               const body = rsEl.querySelector(".rs-body").textContent;
               rs.shown = rsEl.hidden === false;
               rs.bodyHasCount = body.includes(list.length + " annotation");
@@ -2119,7 +2231,8 @@ function runSmokeTest(w) {
               while (Date.now() - rs1 < 10000 && !rsEl.hidden) await new Promise((r) => setTimeout(r, 200));
               rs.autoDismissed = rsEl.hidden === true;
             } catch (e) { rs.error = String((e && e.message) || e); }
-            rs.allOk = rs.shown === true && rs.bodyHasCount === true && rs.bodyHasOverride === true &&
+            rs.allOk = rs.noMismatchPrompt === true &&
+              rs.shown === true && rs.bodyHasCount === true && rs.bodyHasOverride === true &&
               rs.bodyHasChat === true && rs.bmRestored === true && rs.bodyHasBm === true &&
               rs.autoDismissed === true && !rs.error;
             // ── restore by URL ─────────────────────────────────
@@ -2744,7 +2857,16 @@ function runSmokeTest(w) {
                 });
                 return { ok: true, body: stream };
               };
+              /* Intercept ONLY the chat endpoint. This stood in for EVERY
+                 fetch, so any background call the app made on its own
+                 schedule -- a model-list poll, an update check -- landed in
+                 reqBodies and broke the "exactly two requests" assertion. A
+                 failing run showed FOURTEEN, with the tool call absorbed and
+                 the reply text correct: the tool loop was fine, the counting
+                 was not. Passing everything else through also stops the fake
+                 corrupting unrelated traffic while it is installed. */
               window.fetch = async (_url, init) => {
+                if (String(_url).indexOf("/chat/completions") === -1) return realFetch(_url, init);
                 reqBodies.push(JSON.parse(init.body));
                 const n = reqBodies.length;
                 if (n === 1) {
@@ -2762,12 +2884,33 @@ function runSmokeTest(w) {
               const am = { role: "assistant", content: "", sources: [], error: false };
               try {
                 await Volt.AI._stream([{ role: "user", content: "highlight quiet engine" }], am);
+                /* _stream resolving does not guarantee the SECOND request --
+                   the one carrying the tool result back -- has been issued.
+                   The probe used to read reqBodies straight after and
+                   intermittently found only the first, reporting a broken
+                   tool loop that was merely still in flight. Worse, the
+                   finally below restores the real fetch, so a follow-up that
+                   arrived a moment later would have gone to the network
+                   instead of the fake. Wait for the round trip to land while
+                   the fake is still installed. */
+                const t0 = Date.now();
+                while (Date.now() - t0 < 10000 &&
+                       !(reqBodies.length === 2 && am.content.includes("highlighted"))) {
+                  await new Promise((r) => setTimeout(r, 50));
+                }
               } finally {
                 // ALWAYS restore the real fetch — if the harness throws, the
                 // fake must not leak into later stages (it would corrupt the
                 // OCR downloads / fingerprint network calls).
                 window.fetch = realFetch;
               }
+              /* Record the two facts the verdict is made of. This stage
+                 still fails occasionally and "toolLoop: false" cannot say
+                 whether the follow-up request never went out or the reply
+                 text never arrived -- which are different bugs. */
+              voice.toolLoopRequests = reqBodies.length;
+              voice.toolLoopReply = String(am.content || "").slice(0, 80);
+              voice.toolLoopAbsorbed = Array.isArray(am.toolCalls) ? am.toolCalls.join(",") : null;
               voice.toolLoop = am.content.includes("highlighted") && reqBodies.length === 2;
               voice.toolLoopSentTool = !!(reqBodies[0] && Array.isArray(reqBodies[0].tools) && reqBodies[0].tools.length);
               voice.toolLoopResultFed = !!(reqBodies[1] && reqBodies[1].messages.some((m) => m.role === "tool"));
@@ -2936,13 +3079,29 @@ function runSmokeTest(w) {
                 boot.primaryPull = bootPrimary.textContent.indexOf("Download " + wantBm) >= 0;
                 // pull flow → applied as the default model (the button is still
                 // ENABLED at this point — the ready render just ran)
+                /* Count the pull THIS click causes, not the pulls that exist.
+                   pullBodies is shared with the auto-select sub-probe above,
+                   so "exactly one" was only true while that probe happened
+                   not to have pulled anything -- an absolute count against a
+                   shared array, the same mistake as counting every fetch in
+                   the tool-loop stage. */
+                const pullsBeforePrimary = pullBodies.length;
                 bootPrimary.click();
+                const pulledOk = () => AI.settings.model === wantBm && AI.settings.provider === "ollama" &&
+                  pullBodies.length === pullsBeforePrimary + 1 &&
+                  pullBodies[pullsBeforePrimary] && pullBodies[pullsBeforePrimary].model === wantBm;
                 let t0 = Date.now();
-                while (Date.now() - t0 < 8000 && AI.settings.model !== wantBm) {
+                while (Date.now() - t0 < 15000 && !pulledOk()) {
                   await new Promise((r) => setTimeout(r, 60));
                 }
-                boot.pulled = AI.settings.model === wantBm && AI.settings.provider === "ollama" &&
-                  pullBodies.length === 1 && pullBodies[0].model === wantBm;
+                boot.pulled = pulledOk();
+                if (!boot.pulled) {
+                  boot.pulledDetail = "model=" + AI.settings.model + " want=" + wantBm +
+                    " nowWants=" + AI._bootstrapModel() +
+                    " pulled=" + pullBodies.map((x) => x.model).join("/") +
+                    " provider=" + AI.settings.provider + " pulls=" + pullBodies.length +
+                    " before=" + pullsBeforePrimary;
+                }
                 boot.cardHiddenAfterApply = bootEl.hidden === true;
                 // progress rendering: 42% shows in the bar and the label (after
                 // the click — the pulling render disables the button, which
@@ -3002,14 +3161,38 @@ function runSmokeTest(w) {
                   tierOf("qwen3:4b").click();
                   boot.tier.selectArms = tierBtn.disabled === false &&
                     tierBtn.textContent.indexOf("Install qwen3:4b") >= 0 && tierDesc.textContent.length > 20;
+                  /* This sub-probe needs the block to believe NOTHING is
+                     installed, which it set up with an empty tags list above.
+                     A refresh left in flight by the pull flow lands after
+                     that and repaints the block from the older list, so the
+                     button reads "Use qwen3:4b" and the install is never
+                     started -- the stage then waits out its cap for a pull
+                     nobody asked for. Waiting cannot fix it: the state is
+                     wrong, not late. Re-establish it and re-select, a few
+                     times, and only then click. */
+                  for (let attempt = 0; attempt < 5; attempt++) {
+                    if (!tierBtn.disabled && tierBtn.textContent.indexOf("Install qwen3:4b") >= 0) break;
+                    tagsModels = [];
+                    await AI._refreshQualityBlock();
+                    const chip = tierOf("qwen3:4b");
+                    if (chip) chip.click();
+                    await new Promise((r) => setTimeout(r, 80));
+                  }
                   const pullsBefore = pullBodies.length;
                   tierBtn.click();
+                  const installedOk = () => AI.settings.model === "qwen3:4b" &&
+                    pullBodies.length === pullsBefore + 1 && pullBodies[pullsBefore] &&
+                    pullBodies[pullsBefore].model === "qwen3:4b";
                   t0 = Date.now();
-                  while (Date.now() - t0 < 8000 && AI.settings.model !== "qwen3:4b") {
+                  while (Date.now() - t0 < 15000 && !installedOk()) {
                     await new Promise((r) => setTimeout(r, 60));
                   }
-                  boot.tier.installed = AI.settings.model === "qwen3:4b" &&
-                    pullBodies.length === pullsBefore + 1 && pullBodies[pullsBefore].model === "qwen3:4b";
+                  boot.tier.installed = installedOk();
+                  if (!boot.tier.installed) {
+                    boot.tier.installedDetail = "model=" + AI.settings.model +
+                      " pulls=" + pullBodies.length + " before=" + pullsBefore +
+                      " btnDisabled=" + tierBtn.disabled + " btn=" + tierBtn.textContent.slice(0, 40);
+                  }
                   // already-installed path: "Use qwen3:8b" — no new pull
                   AI.settings = Object.assign({}, AI.settings, { model: "" });
                   tagsModels = [{ name: "qwen3:1.7b" }, { name: "qwen3:4b" }, { name: "qwen3:8b" }, { name: "llama3.2:3b" }];
@@ -4081,6 +4264,30 @@ function runSmokeTest(w) {
             try {
               const Ann2 = Volt.Ann;
               const App2 = Volt.App;
+              /* Applying a page reorder rebuilds the PDF, reopens it, and
+                 re-renders the sidebar - three async hops with no single
+                 promise to await, so each site below picked a fixed sleep and
+                 hoped. On the CI runner the 900ms ran out mid-rebuild and
+                 every assertion after it read a half-finished document: the
+                 reorder "did not commit", the annotations "did not follow",
+                 the undo "was never offered". None of that was true; the
+                 probe simply looked too early.
+
+                 Wait for the state the next assertion needs instead. A
+                 condition already satisfied returns immediately, so this is
+                 FASTER than the sleeps it replaces on a quick machine and
+                 merely patient on a slow one. The cap still fails the stage
+                 rather than hanging the smoke, and returning the predicate's
+                 value keeps a genuine breakage failing. */
+              const until = async (fn, ms = 15000) => {
+                const t0 = Date.now();
+                for (;;) {
+                  let v = false;
+                  try { v = !!(await fn()); } catch (e) { v = false; }
+                  if (v || Date.now() - t0 > ms) return v;
+                  await new Promise((r) => setTimeout(r, 50));
+                }
+              };
               // ── Ctrl+A: select all text on the current page ──────────
               // standard-PDF-reader behavior: one native Range covering every
               // text node of the CURRENT page's text layer (not the browser's
@@ -4793,7 +5000,10 @@ function runSmokeTest(w) {
               // must warm ("d:1") so the manager's grid blits it instead of
               // re-rasterizing
               App2._renderThumbs();
-              await new Promise((r) => setTimeout(r, 700));
+              await until(() => {
+                const c = sgrid.querySelector(".thumb-item canvas");
+                return sgrid.querySelectorAll(".thumb-item").length >= 3 && c && c.width > 100;
+              });
               const sitems = [...sgrid.querySelectorAll(".thumb-item")];
               const s1 = sitems[0] || sgrid.querySelector('.thumb-item[data-page="1"]');
               const s1sz = s1 && s1.querySelector(".pages-size");
@@ -4880,7 +5090,10 @@ function runSmokeTest(w) {
               // thumbnails rasterize async — give the canvases time to paint,
               // then assert they REALLY painted (a regression that silently
               // breaks the rasterizer must fail here, not just look blank)
-              await new Promise((r) => setTimeout(r, 700));
+              await until(() => {
+                const c = grid.querySelector('[data-pi="0"] canvas');
+                return c && c.width > 100;
+              });
               const item0 = grid.querySelector('[data-pi="0"]');
               const cv0 = item0 && item0.querySelector("canvas");
               const sz0 = item0 && item0.querySelector(".pages-size");
@@ -5575,7 +5788,8 @@ function runSmokeTest(w) {
               const apply1 = confirm1 ? [...confirm1.querySelectorAll(".toast-action")].find((b) => b.textContent === "Apply") : null;
               pageMgr.reorderApplyBtn = !!apply1 && apply1.classList.contains("armed");
               if (apply1) apply1.click();
-              await new Promise((r) => setTimeout(r, 900)); // rebuild + reopen + sidebar re-render
+              await until(() => App2._reorderUndo && App2.currentDoc &&
+                App2.currentDoc.numPages === 3 && sgrid.querySelectorAll(".thumb-item").length === 3);
               pageMgr.reorderCommitted = !!(App2.currentDoc && App2.currentDoc.numPages === 3) &&
                 sgrid.querySelectorAll(".thumb-item").length === 3 && !!App2._reorderUndo;
               pageMgr.reorderDragCleaned = App2._thumbDragPage === null && App2._thumbDrop === null;
@@ -5592,12 +5806,15 @@ function runSmokeTest(w) {
               const reorderUndoBtn = [...document.querySelectorAll(".toast-action")].pop();
               pageMgr.reorderUndoOffered = !!reorderUndoBtn && reorderUndoBtn.textContent === "Undo reorder";
               if (reorderUndoBtn) reorderUndoBtn.click();
-              await new Promise((r) => setTimeout(r, 900));
-              const ur1 = sgrid.querySelector('.thumb-item[data-page="1"]');
-              pageMgr.reorderUndone = !!(App2.currentDoc && App2.currentDoc.numPages === 3) &&
-                !!ur1 && !!ur1.querySelector(".pages-ann") &&
-                Ann2.list.some((a) => a.id === rNote.id && a.page === 1) &&
-                Ann2.list.some((a) => a.id === seedNote.id && a.page === 1);
+              const reorderUndoneOk = () => {
+                const u = sgrid.querySelector('.thumb-item[data-page="1"]');
+                return !!(App2.currentDoc && App2.currentDoc.numPages === 3) &&
+                  sgrid.querySelectorAll(".thumb-item").length === 3 &&
+                  !!u && !!u.querySelector(".pages-ann") &&
+                  Ann2.list.some((a) => a.id === rNote.id && a.page === 1) &&
+                  Ann2.list.some((a) => a.id === seedNote.id && a.page === 1);
+              };
+              pageMgr.reorderUndone = await until(reorderUndoneOk);
               // ── sidebar Shift+arrow / Shift+Home / Shift+End range selection ──
               // keyboard-only multi-select on the thumbnails, the SAME
               // anchor/focus model as the manager (page numbers, 1-based):
@@ -5715,7 +5932,11 @@ function runSmokeTest(w) {
               const apply2 = confirm2 ? [...confirm2.querySelectorAll(".toast-action")].find((b) => b.textContent === "Apply") : null;
               pageMgr.blockApplyBtn = !!apply2;
               if (apply2) apply2.click();
-              await new Promise((r) => setTimeout(r, 900)); // rebuild + reopen + sidebar re-render
+              await until(() => App2._reorderUndo && App2.currentDoc &&
+                App2.currentDoc.numPages === 3 && sgrid.querySelectorAll(".thumb-item").length === 3 &&
+                App2._thumbSel && App2._thumbSel.size === 2 && App2._thumbSel.has(1) &&
+                sgrid.querySelector('.thumb-item[data-page="1"]') &&
+                sgrid.querySelector('.thumb-item[data-page="1"]').classList.contains("sel"));
               pageMgr.blockCommitted = !!(App2.currentDoc && App2.currentDoc.numPages === 3) &&
                 !!App2._reorderUndo;
               pageMgr.blockOrder = (() => {
@@ -5739,12 +5960,15 @@ function runSmokeTest(w) {
               const blockUndoBtn = [...document.querySelectorAll(".toast-action")].pop();
               pageMgr.blockUndoOffered = !!blockUndoBtn && blockUndoBtn.textContent === "Undo reorder";
               if (blockUndoBtn) blockUndoBtn.click();
-              await new Promise((r) => setTimeout(r, 900));
-              const bu1 = sgrid.querySelector('.thumb-item[data-page="1"]');
-              pageMgr.blockUndone = !!(App2.currentDoc && App2.currentDoc.numPages === 3) &&
-                !!bu1 && !!bu1.querySelector(".pages-ann") &&
-                Ann2.list.some((a) => a.id === rNote.id && a.page === 1) &&
-                !App2._thumbSel; // the undo restores the pre-reorder state — selection cleared
+              const blockUndoneOk = () => {
+                const u = sgrid.querySelector('.thumb-item[data-page="1"]');
+                return !!(App2.currentDoc && App2.currentDoc.numPages === 3) &&
+                  sgrid.querySelectorAll(".thumb-item").length === 3 &&
+                  !!u && !!u.querySelector(".pages-ann") &&
+                  Ann2.list.some((a) => a.id === rNote.id && a.page === 1) &&
+                  !App2._thumbSel; // the undo restores the pre-reorder state — selection cleared
+              };
+              pageMgr.blockUndone = await until(blockUndoneOk);
               // ── sidebar reorder PERSISTS TO DISK (path-opened PDF) ──
               // the reorders above rebuilt in-memory docs. A PDF opened from a
               // real path must be written BACK to that same file: after Apply,
@@ -5778,7 +6002,8 @@ function runSmokeTest(w) {
                 const diskConfirm = [...document.querySelectorAll(".toast")].find((t) => t.textContent.includes("apply?"));
                 const diskApply = diskConfirm ? [...diskConfirm.querySelectorAll(".toast-action")].find((b) => b.textContent === "Apply") : null;
                 if (diskApply) diskApply.click();
-                await new Promise((r) => setTimeout(r, 1000)); // write + reopen + re-render
+                await until(() => Volt.App._reorderUndo && Volt.App.currentDoc &&
+                  Volt.App.currentDoc.numPages === 3);
                 disk.reordered = !!(Volt.App.currentDoc && Volt.App.currentDoc.numPages === 3) && !!Volt.App._reorderUndo;
                 // the file ON DISK must now be the rebuilt doc (pages 2,1,3 —
                 // same page count; verified structurally by re-opening it)
@@ -5792,7 +6017,8 @@ function runSmokeTest(w) {
                 disk.undoOffered = !!diskUndoBtn && diskUndoBtn.textContent === "Undo reorder";
                 disk.undoPath = Volt.App._reorderUndo ? Volt.App._reorderUndo.path : null;
                 if (diskUndoBtn) diskUndoBtn.click();
-                await new Promise((r) => setTimeout(r, 1000));
+                await until(async () => (await window.voltDesktop.readFile(DISK_TMP_PATH))
+                  .data.byteLength === diskBytes.byteLength);
                 const diskBack2 = (await window.voltDesktop.readFile(DISK_TMP_PATH)).data;
                 disk.fileRestored = diskBack2.byteLength === diskBytes.byteLength;
                 disk.allOk = disk.openedByPath === true && disk.reordered === true &&
@@ -5867,42 +6093,44 @@ function runSmokeTest(w) {
                   document.getElementById("thumb-move-hint").textContent.includes("before 4");
                 document.getElementById("thumb-move-pos").value = "2";
                 document.getElementById("thumb-move-go").click();
-                await new Promise((r) => setTimeout(r, 900));
+                const selTo2Ok = () => {
+                  const a = kg.querySelector('.thumb-item[data-page="2"]');
+                  const b = kg.querySelector('.thumb-item[data-page="3"]');
+                  return !!(App2._thumbSel && App2._thumbSel.size === 2 && App2._thumbSel.has(2) &&
+                    App2._thumbSel.has(3)) && !!a && a.classList.contains("sel") &&
+                    !!b && b.classList.contains("sel");
+                };
+                await until(() => kbOrder() === "1,2(ann),3(ann)" && selTo2Ok());
                 kbMove.movedTo2 = kbOrder() === "1,2(ann),3(ann)"; // blank, orig1, orig3
-                kbMove.selTo2 = !!(App2._thumbSel && App2._thumbSel.size === 2 && App2._thumbSel.has(2) && App2._thumbSel.has(3)) &&
-                  kg.querySelector('.thumb-item[data-page="2"]').classList.contains("sel") &&
-                  kg.querySelector('.thumb-item[data-page="3"]').classList.contains("sel");
+                kbMove.selTo2 = selTo2Ok();
                 // First button → block to the front
                 document.getElementById("thumb-move-first").click();
-                await new Promise((r) => setTimeout(r, 900));
-                kbMove.firstOk = kbOrder() === "1(ann),2(ann),3" &&
+                const firstOk = () => kbOrder() === "1(ann),2(ann),3" &&
                   !!(App2._thumbSel && App2._thumbSel.size === 2 && App2._thumbSel.has(1) && App2._thumbSel.has(2));
+                kbMove.firstOk = await until(firstOk);
                 // synthetic Ctrl+End → block to the back (the real-key stage
                 // re-checks the same binding with NATIVE input later)
                 document.dispatchEvent(new KeyboardEvent("keydown", { key: "End", ctrlKey: true, bubbles: true, cancelable: true }));
-                await new Promise((r) => setTimeout(r, 900));
+                await until(() => kbOrder() === "1,2(ann),3(ann)");
                 kbMove.ctrlEndOk = kbOrder() === "1,2(ann),3(ann)";
                 // Ctrl+M opens the move form; "before 1" sends the block to the front again
                 document.dispatchEvent(new KeyboardEvent("keydown", { key: "m", ctrlKey: true, bubbles: true, cancelable: true }));
                 kbMove.ctrlMForm = document.getElementById("thumb-move-form").hidden === false;
                 document.getElementById("thumb-move-pos").value = "before 1";
                 document.getElementById("thumb-move-go").click();
-                await new Promise((r) => setTimeout(r, 900));
-                kbMove.before1Ok = kbOrder() === "1(ann),2(ann),3" &&
-                  !!(App2._thumbSel && App2._thumbSel.size === 2 && App2._thumbSel.has(1) && App2._thumbSel.has(2));
+                kbMove.before1Ok = await until(firstOk);   // same end state as the First button
                 // Last button → block to the back; Clear empties the selection
                 document.getElementById("thumb-move-last").click();
-                await new Promise((r) => setTimeout(r, 900));
-                kbMove.lastOk = kbOrder() === "1,2(ann),3(ann)" &&
-                  !!(App2._thumbSel && App2._thumbSel.size === 2 && App2._thumbSel.has(2) && App2._thumbSel.has(3));
+                kbMove.lastOk = await until(() => kbOrder() === "1,2(ann),3(ann)" &&
+                  !!(App2._thumbSel && App2._thumbSel.size === 2 && App2._thumbSel.has(2) && App2._thumbSel.has(3)));
                 document.getElementById("thumb-move-clear").click();
                 kbMove.clearOk = !App2._thumbSel && kbRow.hidden === true && kbForm.hidden === true;
                 // undo restores the pre-Last state (order back, selection gone)
                 const kbUndo = [...document.querySelectorAll(".toast-action")].pop();
                 kbMove.undoOffered = !!kbUndo && kbUndo.textContent === "Undo reorder";
                 if (kbUndo) kbUndo.click();
-                await new Promise((r) => setTimeout(r, 900));
-                kbMove.undone = kbOrder() === "1(ann),2(ann),3" && !App2._thumbSel && kbRow.hidden === true;
+                kbMove.undone = await until(() => kbOrder() === "1(ann),2(ann),3" &&
+                  !App2._thumbSel && kbRow.hidden === true);
                 kbMove.allOk = kbMove.rowShown === true && kbMove.formShown === true &&
                   kbMove.movedTo2 === true && kbMove.selTo2 === true &&
                   kbMove.firstOk === true && kbMove.ctrlEndOk === true &&
@@ -8180,6 +8408,7 @@ if (!gotLock) {
       // Ctrl+R reload — are re-added per-window in createWindow.)
       if (process.platform !== "darwin") Menu.setApplicationMenu(null);
       const port = await startServer();
+      servedPort = port;   // the macOS dock-reopen path needs it (see "activate")
       await createWindow(port);
       // a .pdf was passed at launch — never in browser mode: without the
       // preload there is no volt:renderer-ready IPC to flush the queue
@@ -8192,7 +8421,18 @@ if (!gotLock) {
     }
   });
 
-  app.on("window-all-closed", () => app.quit());
+  /* On Windows and Linux, closing the last window means "I am done with
+     Volt". On macOS it does not - an app with no windows is still running,
+     its menu bar is still there, and clicking the dock icon is how you get a
+     window back. Quitting here would make Volt the one app on the machine
+     that vanishes when you close a document, and there would be no way to
+     reopen it short of relaunching. */
+  app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
+  app.on("activate", () => {
+    if (win && !win.isDestroyed()) { win.show(); win.focus(); return; }
+    if (!servedPort) return;   // nothing to serve yet - startup has not finished
+    createWindow(servedPort).catch((e) => console.error("Volt failed to reopen: " + ((e && e.stack) || e)));
+  });
   app.on("will-quit", () => {
     if (vendorUpdater) { try { vendorUpdater.kill(); } catch (e) { /* gone */ } }
     vendorUpdater = null;

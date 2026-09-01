@@ -44,6 +44,32 @@ const SERVE_PORT = 8573; // unusual port — the test's own serve.mjs instance
 const ELECTRON = require("electron"); // the electron binary path (from the npm package)
 
 let pass = 0, fail = 0;
+/* Name the assertions behind a failed smoke, not just "it failed".
+   This gate embeds the smoke output inside its own JSON and truncates it to a
+   tail, so a CI failure here showed the END of a very long result and never
+   the part that broke - the same blind spot the vendor gate had. The parsed
+   result is right there; walk it. */
+function failingStages(result) {
+  if (!result || typeof result !== "object") return "(no parsed result)";
+  const fails = [];
+  const walk = (node, path) => {
+    if (!node || typeof node !== "object") return;
+    if (node.allOk === false || node.pass === false) {
+      const why = Object.entries(node)
+        .filter(([k, v]) => (v === false && k !== "allOk" && k !== "pass" && k !== "ok"))
+        .map(([k]) => k);
+      if (node.error) why.push("error=" + String(node.error).slice(0, 120));
+      fails.push(why.length ? path + " (" + why.slice(0, 12).join(", ") + ")" : path);
+      return;
+    }
+    for (const [k, v] of Object.entries(node)) {
+      if (v && typeof v === "object") walk(v, path ? path + "." + k : k);
+    }
+  };
+  walk(result, "");
+  return fails.join(" | ") || "(nothing reported false)";
+}
+
 function t(name, cond, extra) {
   if (cond) { pass++; console.log("  ✓ " + name); }
   else { fail++; console.log("  ✗ " + name + (extra !== undefined ? " — " + JSON.stringify(extra) : "")); }
@@ -183,7 +209,9 @@ try {
   // positive smoke: freshly regenerated artifacts must pass
   const pos = runSmoke();
   t("smoke PASSES with freshly regenerated artifacts",
-    pos.ok === true, { status: pos.status, swAllOk: pos.result && pos.result.serviceWorkerCache && pos.result.serviceWorkerCache.allOk, tail: pos.ok === true ? undefined : pos.tail });
+    pos.ok === true, { status: pos.status, swAllOk: pos.result && pos.result.serviceWorkerCache && pos.result.serviceWorkerCache.allOk,
+      failing: pos.ok === true ? undefined : failingStages(pos.result),
+      tail: pos.ok === true ? undefined : pos.tail });
 } finally {
   // restore the app file byte-for-byte, regenerate the artifacts, and prove
   // the tree is exactly where it started

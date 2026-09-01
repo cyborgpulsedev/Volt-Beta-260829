@@ -36,6 +36,7 @@ const BETA_EXCLUDE = [
   ".github/workflows/ci.yml",
   ".github/workflows/release.yml",
   ".github/workflows/linux.yml",
+  ".github/workflows/macos.yml",
 
   "assets/Volt Design Set.png",
   "assets/volt-icon-black.png",

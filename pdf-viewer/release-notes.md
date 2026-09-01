@@ -1,44 +1,14 @@
-## Volt 1.0.17
+## Volt 1.0.18
 
 Volt is a fast, private, ad-free PDF reader with AI built in — everything renders locally, and you bring your own LLM. No account, no telemetry, no upsells.
 
-**The text tool works properly.** Three things were wrong with it. On a scanned page it did nothing at all and said nothing — it now tells you the page looks scanned and points you at OCR, after which editing works. When it did edit, the white box covering the old text was too small, so the tail of the original stayed visible beside your new words. And if your replacement was longer than the line, the overflow was painted across whatever was below it — a heading edit could scribble into a table. Replacements now shrink to fit their own line and nothing else on the page is touched.
+A small release: it fixes what Volt tells you about itself.
 
-One thing worth knowing: editing text covers the original rather than deleting it, so the old wording is still in the file and still searchable. Use Redact when it has to be gone.
+**The release notes inside Volt are readable again.** The About box and the update tooltip both show the notes for your version, and both were showing them wrong. The asterisks that mark each entry's bold heading were printed as literal text, so the notes read like source code. Worse, only the first line of each entry ever appeared — the notes are written wrapped at a fixed width, so every one of them was cut off after about twelve words, usually mid-clause. Entries now appear in full, with their headings actually bold.
 
-**Volt can open password-protected PDFs.** It could make them and then refuse to open one — including its own — with no way to type a password. Now it asks.
+Both views are drawn by the same code on purpose, so what you read in the About box and what you read in the update tooltip cannot drift apart.
 
-**Password protection is AES-256.** It used to be 40-bit RC4, which has been breakable in seconds for twenty years. Files you protected with an older version still open; new ones are properly encrypted.
-
-**Your markup comes back when you reopen the file.** Last release Volt started writing real PDF annotations; it could not read them. Reopen your own export and the highlight was visible but no longer yours — you could not select it, recolour it or delete it. Now it is. The same change means Volt opens documents marked up in Acrobat, which it never could before.
-
-**Uninstalling cleans up after itself.** A quarter of a gigabyte of downloaded installers used to be left behind.
-
-**Your markup is real PDF annotation objects.** Highlights, underlines, strikethroughs, boxes and notes used to be painted into the page — they looked right, and that was all. Open an exported file in Acrobat now and the highlight is a highlight: click it, change its colour, reply to it, delete it. Other PDF tools can read your markup too.
-
-**Export → Flatten for printing** does the old thing on purpose, for when a file is going to a printer or to someone who must not be able to move the markup.
-
-One detail that matters in practice: every annotation carries its own appearance, so it shows up in Chrome, Preview and phone readers as well as Acrobat — many PDFs with annotations don't, and appear blank.
-
-**Word export: two-column articles come out as text, not a table.** A two-column page was being read as a two-column table, so an article exported with a sentence trapped in every cell. Volt now tells prose from tabular data by how long the cells are — a table of short values is still a table, an article is now flowing text. Forms drawn with ruled lines still reconstruct as real tables, empty cells included.
-
-**Word export: columns and type.** Two-column documents used to export with both columns interleaved line by line — the left column's sentence, then the right column's, all the way down, unreadable. They now read down one column and then the other, the way you read them. And text keeps its typeface: a serif document exports as serif, with bold and italic preserved, instead of everything arriving in Word's default sans.
-
-**Word export keeps your page count.** Exporting to Word used to reflow everything onto Letter-sized pages at 11pt, whatever your document actually was — so a dense A4 report came out at twice its length, and a 207-page document became 471. It now uses your document's own page size, its own margins, and the type size each line was set in. A 60-page test document that exported to 120 pages now exports to 61.
-
-Columns, tables rebuilt from ruling lines, and font matching are still to come. This is the part that decides page count.
-
-**New: text-only exports.** Three additions under Export, for when you want the words and nothing else.
-
-- **Word document — text only (.docx)** — paragraphs in reading order. No tables, no pictures, no attempt at layout. This is the one to use when the full Word export gets your document wrong: it makes no guesses, so it has nothing to get wrong.
-- **Plain text (.txt)** — the document's text, with a rule between pages.
-- **Tables as CSV (.csv)** — detected tables in one plain file that opens in anything, no spreadsheet required. Accented characters and cells containing commas both survive.
-
-All three respect a page selection made in the Pages manager, and all three offer **Open with…** straight from the toast.
-
-Why they exist: the existing Word and PowerPoint exports analyse every page for tables and pictures. That is what makes them good on a well-behaved document and what makes them slow and occasionally wrong on an awkward one — prose absorbed into a table it isn't part of, or minutes spent extracting images from a scan. The text-only exports skip all of it.
-
-The full Word export that reconstructs columns, tables and page breaks properly is still being built. These are the honest option in the meantime, not a replacement for it.
+**Links the AI writes are clickable again.** A link in an assistant reply came out as broken markup instead of something you could follow. The same renderer was behind it, so the fix covers both.
 
 **Highlights**
 - Fully local rendering — vendored pdf.js, works offline, even from `file://`
@@ -51,7 +21,7 @@ The full Word export that reconstructs columns, tables and page breaks properly 
 - Read aloud with local voices, and talk to the AI with your microphone
 
 **Install**
-- **New installs:** download `Volt-Setup-1.0.17.exe` and run it — per-user install, no admin needed. SmartScreen will warn on first launch: click "More info" → "Run anyway".
+- **New installs:** download `Volt-Setup-1.0.18.exe` and run it — per-user install, no admin needed. SmartScreen will warn on first launch: click "More info" → "Run anyway".
 - **Existing installs:** if you are on 1.0.9, this arrives on its own. If you are on 1.0.8 or earlier, install by hand once — automatic updates were broken before 1.0.9 and the version you have is the one that rejects them.
 
 **Requirements**
