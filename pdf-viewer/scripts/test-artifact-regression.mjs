@@ -54,17 +54,23 @@ function failingStages(result) {
   const fails = [];
   const walk = (node, path) => {
     if (!node || typeof node !== "object") return;
-    if (node.allOk === false || node.pass === false) {
-      const why = Object.entries(node)
-        .filter(([k, v]) => (v === false && k !== "allOk" && k !== "pass" && k !== "ok"))
-        .map(([k]) => k);
-      if (node.error) why.push("error=" + String(node.error).slice(0, 120));
-      fails.push(why.length ? path + " (" + why.slice(0, 12).join(", ") + ")" : path);
-      return;
-    }
+    const red = node.allOk === false || node.pass === false;
+    /* Descend FIRST, and descend even into a node already known red. A big
+       stage is often red only because a nested group under it is red — it then
+       has no false booleans of its own, so stopping at it named the stage
+       ("failing: pageMgr") while explaining nothing, which is how a 318-
+       assertion stage stayed undiagnosable across several CI failures. */
+    const before = fails.length;
     for (const [k, v] of Object.entries(node)) {
-      if (v && typeof v === "object") walk(v, path ? path + "." + k : k);
+      if (v && typeof v === "object" && !Array.isArray(v)) walk(v, path ? path + "." + k : k);
     }
+    if (!red) return;
+    const why = Object.entries(node)
+      .filter(([k, v]) => (v === false && k !== "allOk" && k !== "pass" && k !== "ok"))
+      .map(([k]) => k);
+    if (node.error) why.push("error=" + String(node.error).slice(0, 120));
+    if (why.length) fails.push(path + " (" + why.slice(0, 12).join(", ") + ")");
+    else if (fails.length === before) fails.push(path); // nothing deeper explained it
   };
   walk(result, "");
   return fails.join(" | ") || "(nothing reported false)";

@@ -4,6 +4,35 @@ Each release is a `## x.y.z` section. The version banner tooltip shows the
 sections newer than the installed bundle, so a pending update tells you what
 changed before you restart.
 
+## 1.0.19
+
+**Digital signing works with every certificate.** Signing a PDF failed for
+some certificates and not others, with an error that named nothing you could
+act on. It was not your file and not your password: Volt was mishandling the
+certificate itself, and it did so consistently for the certificates it
+affected — so if yours was one of them, signing had never worked and never
+would have.
+
+- **About one certificate in sixteen was quietly damaged when Volt opened
+  it.** Volt removed a piece of internal padding that had already been
+  removed, which cut real bytes off the private key. Whether it happened
+  depended on the last byte of your particular key, which is why it hit some
+  people every single time and others never.
+- **A wrongly-decoded password could be accepted as correct.** Volt tries two
+  conventions for turning your password into decryption bytes, because
+  different programs disagree, and it treated "this did not error" as proof
+  the right one had been used. Roughly once in every 256 attempts the wrong
+  one produced plausible-looking rubbish that was then used as your key. Volt
+  now checks the result is a real key before accepting it.
+
+**Export stops offering itself when there is nothing to export.** With no
+document open, the Export item still looked available and did nothing at all
+when clicked. It is now greyed out until you open a file.
+
+Certificates protected with the older RC2-40 encryption — what some older
+Windows exports produce — are still not supported, and say so clearly rather
+than failing halfway.
+
 ## 1.0.18
 
 **What Volt tells you about itself.** The About box and the update tooltip

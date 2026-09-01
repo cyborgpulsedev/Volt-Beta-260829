@@ -269,6 +269,44 @@ async function runOpensslPfx() {
     try { await Sign.parsePfx(pfxBytes, "definitely-wrong"); } catch (e) { wrongRejected = /password/i.test(e.message); }
     t("OpenSSL-3 PFX wrong password is rejected (MAC)", wrongRejected);
 
+    /* The key must come back BYTE-FOR-BYTE. Parsing "succeeding" proved
+       nothing here: with a single self-signed certificate parsePfx never
+       imports the key, so a corrupted one sailed through and only blew up
+       later, at signing, as an unexplained "Invalid keyData". */
+    const truePkcs8 = new Uint8Array(Buffer.from(
+      readFileSync(keyPem, "utf8").replace(/-----[^-]+-----/g, "").replace(/\s+/g, ""), "base64"));
+    t("parsePfx returns the private key byte-for-byte",
+      parsed.key.length === truePkcs8.length && parsed.key.every((b, i) => b === truePkcs8[i]));
+
+    /* The regression this guards. Web Crypto's AES-CBC decrypt already strips
+       the PKCS#7 padding; the PBES2 branch stripped it a SECOND time, cutting
+       real bytes off any key whose DER ended in a byte 1..16 — roughly one
+       certificate in sixteen, and permanently for that certificate. A single
+       minted key only hits it 1-in-16 of the time, so mint until one lands in
+       the danger zone rather than leaving the case to chance. */
+    let danger = null;
+    for (let i = 0; i < 40 && !danger; i++) {
+      const k = join(work, `dz-key${i}.pem`), c = join(work, `dz-cert${i}.pem`), p = join(work, `dz${i}.pfx`);
+      execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-keyout", k, "-out", c,
+        "-days", "1", "-nodes", "-subj", "/CN=Volt Padding Probe", "-sha256"], { stdio: "ignore" });
+      const der = new Uint8Array(Buffer.from(
+        readFileSync(k, "utf8").replace(/-----[^-]+-----/g, "").replace(/\s+/g, ""), "base64"));
+      const last = der[der.length - 1];
+      if (last >= 1 && last <= 16) {
+        execFileSync("openssl", ["pkcs12", "-export", "-out", p, "-inkey", k, "-in", c,
+          "-passout", "pass:" + password], { stdio: "ignore" });
+        danger = { pfx: new Uint8Array(readFileSync(p)), der, last };
+      }
+    }
+    if (!danger) {
+      tSkip("a key whose DER ends in 1..16 survives the PBES2 path — none minted in 40 tries");
+    } else {
+      let dzKey = null;
+      try { dzKey = (await Sign.parsePfx(danger.pfx, password)).key; } catch (e) { /* reported below */ }
+      t("a key whose DER ends in 1..16 is not truncated by a second unpad",
+        !!dzKey && dzKey.length === danger.der.length && dzKey.every((b, i) => b === danger.der[i]));
+    }
+
     // the full sign → structural round-trip (the PDFBox gate does the
     // cryptographic external re-verify)
     try {

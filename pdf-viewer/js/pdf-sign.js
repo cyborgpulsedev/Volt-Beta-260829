@@ -476,13 +476,49 @@
             const bits = await subtle.deriveBits({ name: "PBKDF2", salt: salt, iterations: iter, hash: prfName }, pwKey, keyLen * 8);
             const key = new Uint8Array(bits);
             const ck = await subtle.importKey("raw", key, { name: "AES-CBC" }, false, ["decrypt"]);
+            /* NO _unpad here. Web Crypto's AES-CBC decrypt ALREADY removes the
+               PKCS#7 padding, so stripping again cut real bytes off any key
+               whose DER happened to end in a byte 1..16 — about one
+               certificate in sixteen, silently, every time that certificate
+               was used. The 3DES branch above still needs _unpad: its
+               decryptor is the pure-JS one, which does not strip. */
             const plain = new Uint8Array(await subtle.decrypt({ name: "AES-CBC", iv: iv }, ck, encrypted));
-            return this._unpad(plain);
+            /* "decrypt did not throw" is NOT proof the password convention was
+               right. With the wrong bytes the plaintext is garbage, and once
+               in ~256 that garbage ends in a valid PKCS#7 pad, so decrypt
+               succeeds and the garbage was returned AS THE PRIVATE KEY. Every
+               bag this decrypts (SafeContents, PrivateKeyInfo) is one complete
+               DER SEQUENCE, so require that before accepting the variant. */
+            if (!this._derComplete(plain)) {
+              lastErr = new Error("PFX bag did not decrypt to well-formed DER");
+              continue;
+            }
+            return plain;
           } catch (e) { lastErr = e; }
         }
         throw lastErr || new Error("PBES2 decryption failed");
       }
       throw new Error("Unsupported PFX encryption: " + oid);
+    },
+
+    /** Is this buffer exactly one complete DER SEQUENCE, header and content
+        filling it with nothing over or under? Used to tell a real decryption
+        from plausible-looking garbage: every PKCS#12 bag this code decrypts
+        (SafeContents, PrivateKeyInfo) is a single SEQUENCE, and random bytes
+        essentially never encode a length that lands exactly on the end. */
+    _derComplete(u8) {
+      if (!u8 || u8.length < 2 || u8[0] !== 0x30) return false;
+      const first = u8[1];
+      let len, hdr;
+      if (first < 0x80) { len = first; hdr = 2; }         // short form
+      else {
+        const n = first & 0x7f;
+        if (n === 0 || n > 4 || u8.length < 2 + n) return false; // 0x80 = indefinite, illegal in DER
+        len = 0;
+        for (let i = 0; i < n; i++) len = len * 256 + u8[2 + i];
+        hdr = 2 + n;
+      }
+      return hdr + len === u8.length;
     },
 
     /** PKCS#7 padding removal. */
