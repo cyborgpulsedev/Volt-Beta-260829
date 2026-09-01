@@ -38,6 +38,15 @@ const BETA_EXCLUDE = [
   ".github/workflows/linux.yml",
   ".github/workflows/macos.yml",
 
+  /* Internal planning, not documentation. before-launch.md is written FOR
+     the owner: it records the unsigned-publishing state, which decisions are
+     deliberately parked, and whether Volt is ever sold. None of it is
+     dangerous, and none of it is a tester's business either - a public repo
+     is not the place for a private to-do list about the product's commercial
+     posture. Excluded deliberately rather than by remembering each time,
+     because a whole-tree snapshot re-adds whatever a human forgets to strip. */
+  "docs/before-launch.md",
+
   "assets/Volt Design Set.png",
   "assets/volt-icon-black.png",
   "assets/volt-icon-glow-1.png",

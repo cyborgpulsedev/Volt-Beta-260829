@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Volt — local PDF reader &amp; AI editor</title>
-<link rel="stylesheet" href="css/style.css?v=d5b4ead2">
+<link rel="stylesheet" href="css/style.css?v=93e38d7f">
 <link rel="icon" type="image/png" href="assets/favicon-32.png">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="assets/icon-192.png">
@@ -105,7 +105,9 @@
           <svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
           <span>Open from URL…</span>
         </button>
-        <button id="btn-export" class="tb-menu-item" role="menuitem" title="Export PDF, annotations backup, or chat transcript">
+        <!-- starts disabled: there is nothing to export until a document is
+             open. _docReady() enables it. -->
+        <button id="btn-export" class="tb-menu-item" role="menuitem" disabled title="Export PDF, annotations backup, or chat transcript">
           <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
           <span>Export / backup…</span>
         </button>
@@ -1962,6 +1964,6 @@
   <script src="js/ocr.js?v=c259b0bc"></script>
   <script src="js/voice.js?v=51aede49"></script>
   <script src="js/office-export.js?v=cd792b93"></script>
-  <script src="js/app.js?v=939c5b92"></script>
+  <script src="js/app.js?v=da0d7b29"></script>
 </body>
 </html>

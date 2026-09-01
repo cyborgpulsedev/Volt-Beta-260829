@@ -3978,6 +3978,12 @@
       this._loadingDoc = null;
       this.elements.app.classList.remove("no-doc");
       this.elements.app.classList.add("has-doc");
+      // Export is markup-and-document work: it starts disabled in the markup
+      // and becomes available here, the moment there IS something to export.
+      // Before this, clicking it hit a bare `return` — a menu item that looks
+      // available, does nothing and says nothing is indistinguishable from a
+      // broken one.
+      if (this.elements.btnExport) this.elements.btnExport.disabled = false;
       // a render still in flight belongs to the OUTGOING document — bump the
       // generation so it discards its wrap instead of appending a page from
       // the old file into the new one

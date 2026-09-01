@@ -1662,10 +1662,22 @@ function runSmokeTest(w) {
             pass: violations.length === 0 && els.length > 0 && (pin === null || els.length === pin),
           };
         };
+        /* Export before any document is open: the control must be disabled,
+           not merely inert. It used to be enabled and fell straight out of its
+           handler, so it looked available, did nothing and said nothing. This
+           has to be sampled HERE — before openSample() — because nothing ever
+           returns the app to the no-document state once a file has loaded.
+           (No backticks in this comment: the whole probe is a template
+           literal in main.js and one would end it early.) */
+        const expBtn = document.getElementById("btn-export");
+        const exportGate = { disabledBeforeDoc: !!expBtn && expBtn.disabled === true };
+
         // open the sample (or, when a file was passed at launch, rely on
         // the OS handoff to open it) and wait for the document to be ready
         if (!EXPECT_DOC) Volt.App.openSample();
         while (!Volt.App.currentDoc || !Volt.App.pageDims.length) await new Promise((r) => setTimeout(r, 200));
+        exportGate.enabledAfterDoc = !!expBtn && expBtn.disabled === false;
+        exportGate.allOk = exportGate.disabledBeforeDoc && exportGate.enabledAfterDoc;
         // calibration: a hidden element whose display is forced to something
         // else must be flagged by the probe. An inline style with !important
         // outranks ANY author stylesheet rule (even a future, higher-specificity
@@ -7649,7 +7661,8 @@ function runSmokeTest(w) {
               bmProbe.outlineJump === true && bmProbe.outlineSync === true &&
               bmProbe.outlineGone === true && !bmProbe.error;
             return {
-              ok: hiddenOk && visibleOk && vendorBootErrors.allOk && modal.allOk && modalCycle.allOk && helpC.allOk && setup.allOk && watch.allOk && fpStage.allOk && rs.allOk && rurl.allOk && tlMove.allOk && lineSel.allOk && notesDel.allOk && voice.allOk && boot.allOk && dup.allOk && nudge.allOk && rotArea.allOk && sizeBadge.allOk && rectTool.allOk && pageMgr.allOk && swCache.allOk && htmlCache.allOk && verBanner.allOk && aboutModal.allOk && ocr.allOk && office.allOk && isoProbe.allOk && signProbe.allOk && spreadProbe.allOk && bmProbe.allOk && feedbackProbe.allOk && longDoc.allOk && annObj.allOk && textEdit.allOk,
+              ok: hiddenOk && visibleOk && vendorBootErrors.allOk && modal.allOk && modalCycle.allOk && helpC.allOk && setup.allOk && watch.allOk && fpStage.allOk && rs.allOk && rurl.allOk && tlMove.allOk && lineSel.allOk && notesDel.allOk && voice.allOk && boot.allOk && dup.allOk && nudge.allOk && rotArea.allOk && sizeBadge.allOk && rectTool.allOk && pageMgr.allOk && swCache.allOk && htmlCache.allOk && verBanner.allOk && aboutModal.allOk && exportGate.allOk && ocr.allOk && office.allOk && isoProbe.allOk && signProbe.allOk && spreadProbe.allOk && bmProbe.allOk && feedbackProbe.allOk && longDoc.allOk && annObj.allOk && textEdit.allOk,
+              exportGate,
               voice,
               bootstrap: boot,
               ocr,

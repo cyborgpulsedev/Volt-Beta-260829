@@ -444,6 +444,19 @@ body {
 }
 .tb-menu-item:hover { background: var(--bg-3); color: var(--text); }
 .tb-menu-item:active { background: var(--accent-soft); }
+/* An unavailable item has to LOOK unavailable. These buttons set their own
+   colour and cursor, so the browser's default disabled rendering is almost
+   invisible on them — without this, `disabled` would only stop the click and
+   still read as something worth clicking. :hover/:active are overridden too,
+   or a disabled item still lights up under the pointer. */
+.tb-menu-item:disabled,
+.tb-menu-item:disabled:hover,
+.tb-menu-item:disabled:active {
+  opacity: 0.4;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: default;
+}
 .tb-menu-item:focus-visible {
   outline: 2px solid var(--accent-2);
   outline-offset: 1px;
