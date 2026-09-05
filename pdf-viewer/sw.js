@@ -15,8 +15,8 @@
 //   ═══════════════════════════════════════════════════════════════ */
 "use strict";
 
-const CACHE = "volt-41e1289831b4";
-const VERSION = "1.0.20";
+const CACHE = "volt-8bfeffb2a9c9";
+const VERSION = "1.0.21";
 const ASSETS = [
   "./",
   "./index.html",

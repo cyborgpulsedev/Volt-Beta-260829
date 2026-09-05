@@ -206,7 +206,8 @@
         settingsModal: $("settings-modal"), setProvider: $("set-provider"), setBaseurl: $("set-baseurl"),
         setModel: $("set-model"), setApikey: $("set-apikey"), setTemperature: $("set-temperature"),
         setTemperatureVal: $("set-temperature-val"), setMaxctx: $("set-maxctx"),
-        setHistory: $("set-history"), setTools: $("set-tools"), aiFootTools: $("ai-foot-tools"), setNoAutoRestart: $("set-no-auto-restart"),
+        setHistory: $("set-history"), setTools: $("set-tools"), aiFootTools: $("ai-foot-tools"),
+        setAutoRoute: $("set-auto-route"), aiFootRoute: $("ai-foot-route"), setNoAutoRestart: $("set-no-auto-restart"),
         setSysprompt: $("set-sysprompt"), setSave: $("set-save"), setCancel: $("set-cancel"), setTest: $("set-test"),
         setRectW: $("set-rect-w"), setRectH: $("set-rect-h"),
         modelQualityBlock: $("model-quality-block"), tierPresets: $("tier-presets"), tierDesc: $("tier-desc"),
@@ -3822,6 +3823,10 @@
       // a new document supersedes a pending 'Undo reorder' (the commit offers
       // its own undo only AFTER this call returns, so it is never self-dismissed)
       this._dismissReorderUndo();
+      // permission to let the assistant change a file belongs to THAT file —
+      // opening another one asks again, so approval can never follow a
+      // document the user has moved on from
+      if (global.Volt && global.Volt.AI) global.Volt.AI._writeApproval = null;
       this._loadingToast = this.toast("Opening " + (name || "document") + "…");
       try {
         // pdf.js transfers/detaches the buffer — keep a private copy for export first
