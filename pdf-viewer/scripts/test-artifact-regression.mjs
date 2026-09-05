@@ -31,6 +31,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import { cacheName, assetStamps, writeArtifacts } from "./gen-sw.mjs";
+import { failingStages } from "./failing-stages.mjs";
 
 const require = createRequire(import.meta.url);
 const SCRIPTS_DIR = dirname(fileURLToPath(import.meta.url));
@@ -49,32 +50,6 @@ let pass = 0, fail = 0;
    tail, so a CI failure here showed the END of a very long result and never
    the part that broke - the same blind spot the vendor gate had. The parsed
    result is right there; walk it. */
-function failingStages(result) {
-  if (!result || typeof result !== "object") return "(no parsed result)";
-  const fails = [];
-  const walk = (node, path) => {
-    if (!node || typeof node !== "object") return;
-    const red = node.allOk === false || node.pass === false;
-    /* Descend FIRST, and descend even into a node already known red. A big
-       stage is often red only because a nested group under it is red — it then
-       has no false booleans of its own, so stopping at it named the stage
-       ("failing: pageMgr") while explaining nothing, which is how a 318-
-       assertion stage stayed undiagnosable across several CI failures. */
-    const before = fails.length;
-    for (const [k, v] of Object.entries(node)) {
-      if (v && typeof v === "object" && !Array.isArray(v)) walk(v, path ? path + "." + k : k);
-    }
-    if (!red) return;
-    const why = Object.entries(node)
-      .filter(([k, v]) => (v === false && k !== "allOk" && k !== "pass" && k !== "ok"))
-      .map(([k]) => k);
-    if (node.error) why.push("error=" + String(node.error).slice(0, 120));
-    if (why.length) fails.push(path + " (" + why.slice(0, 12).join(", ") + ")");
-    else if (fails.length === before) fails.push(path); // nothing deeper explained it
-  };
-  walk(result, "");
-  return fails.join(" | ") || "(nothing reported false)";
-}
 
 function t(name, cond, extra) {
   if (cond) { pass++; console.log("  ✓ " + name); }
@@ -105,7 +80,9 @@ function runSmoke() {
     hung: !!(r.error && r.error.code === "ETIMEDOUT"),
     ok: !!(result && result.ok === true),
     result,
-    tail: out.slice(-500),
+    // 2000, not 500: an Electron MaxListeners warning on stderr is ~450 chars
+    // on its own and swallowed the whole tail of the one real failure so far.
+    tail: out.slice(-2000),
   };
 }
 
@@ -127,6 +104,13 @@ const swNameFrom = async (url) => {
 };
 
 console.log("Volt — artifact-generator negative regression guard\n");
+
+// The diagnostic itself is gated: a red stage whose only false term lives in
+// a child group with no allOk of its own must still be NAMED. Nothing below
+// can be diagnosed if this regresses.
+const DIAG_PROBE = { pageMgr: { allOk: false, opened: true, aaa: { pinned: false } } };
+t("failingStages names a false term inside an allOk-less child group",
+  failingStages(DIAG_PROBE) === "pageMgr (aaa.pinned)", { got: failingStages(DIAG_PROBE) });
 
 const original = readFileSync(TARGET);
 const baseSwBytes = readFileSync(SW_PATH);
@@ -214,9 +198,19 @@ try {
 
   // positive smoke: freshly regenerated artifacts must pass
   const pos = runSmoke();
+  /* Keep the WHOLE result on disk when this fails. The 2000-char tail cannot
+     hold a 300-assertion stage, and the failure that matters here is
+     intermittent - re-running to "see more" is exactly what is not available. */
+  let dumpPath;
+  if (!pos.ok && pos.result) {
+    dumpPath = join(APP_DIR, "smoke-failure.json");
+    try { writeFileSync(dumpPath, JSON.stringify(pos.result, null, 1)); }
+    catch { dumpPath = "(could not write)"; }
+  }
   t("smoke PASSES with freshly regenerated artifacts",
     pos.ok === true, { status: pos.status, swAllOk: pos.result && pos.result.serviceWorkerCache && pos.result.serviceWorkerCache.allOk,
       failing: pos.ok === true ? undefined : failingStages(pos.result),
+      dump: dumpPath,
       tail: pos.ok === true ? undefined : pos.tail });
 } finally {
   // restore the app file byte-for-byte, regenerate the artifacts, and prove

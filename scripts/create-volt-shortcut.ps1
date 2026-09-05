@@ -19,7 +19,10 @@ $launcher = Join-Path $project 'scripts\start-volt-app-hidden.vbs'
 $assetsDir = Join-Path $project 'pdf-viewer\assets'
 $icoPath = Join-Path $assetsDir 'volt.ico'
 $desktop = [Environment]::GetFolderPath('Desktop')
-$lnkPath = Join-Path $desktop 'Volt PDF Reader.lnk'
+# Named 'Volt - Dev' on purpose: the NSIS installer creates its own 'Volt.lnk'
+# pointing at the installed Volt.exe. Two shortcuts with the same name would be
+# indistinguishable on the desktop, and the uninstaller only removes its own.
+$lnkPath = Join-Path $desktop 'Volt - Dev.lnk'
 
 # ── app icon ────────────────────────────────────────────────────────
 # The official brand icon ships at pdf-viewer/assets/volt.ico (generated
@@ -39,11 +42,11 @@ $lnk = $ws.CreateShortcut($lnkPath)
 $lnk.TargetPath = "$env:SystemRoot\System32\wscript.exe"
 $lnk.Arguments = "`"$launcher`""
 $lnk.WorkingDirectory = $project
-$lnk.Description = 'Volt — local, private, AI-powered PDF reader (desktop app)'
+$lnk.Description = 'Volt - Dev — runs Volt from the SOURCE TREE, not the installed release. For development only.'
 $lnk.IconLocation = "$icoPath,0"
 $lnk.Save()
 
-$startMenu = Join-Path ([Environment]::GetFolderPath('Programs')) 'Volt PDF Reader.lnk'
+$startMenu = Join-Path ([Environment]::GetFolderPath('Programs')) 'Volt - Dev.lnk'
 $lnk2 = $ws.CreateShortcut($startMenu)
 $lnk2.TargetPath = $lnk.TargetPath
 $lnk2.Arguments = $lnk.Arguments

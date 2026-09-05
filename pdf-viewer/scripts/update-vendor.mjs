@@ -25,6 +25,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { cacheName, renderSw, writeArtifacts } from "./gen-sw.mjs";
+import { failingStages } from "./failing-stages.mjs";
 
 const SCRIPTS_DIR = dirname(fileURLToPath(import.meta.url));
 const APP_DIR = join(SCRIPTS_DIR, "..");
@@ -281,39 +282,7 @@ function extractResultJson(out) {
 function summarizeSmokeFailures(out) {
   const json = extractResultJson(out);
   if (!json) return null;
-  try {
-    const r = JSON.parse(json);
-    const fails = [];
-    const walk = (node, path, isRoot) => {
-      if (!node || typeof node !== "object") return;
-      if (Array.isArray(node)) { node.forEach((v, i) => walk(v, path + "[" + i + "]", false)); return; }
-      /* Name the ASSERTIONS, not just the stage. "failing stages: pageMgr"
-         is true and useless: pageMgr carries well over a hundred booleans, so
-         a CI failure could not be diagnosed without editing code and pushing
-         again just to see more. List the keys that are actually false. */
-      const falseKeys = (n) => {
-        const out = [];
-        for (const [k, v] of Object.entries(n)) {
-          if (v === false && k !== "allOk" && k !== "pass" && k !== "ok") out.push(k);
-          else if (k === "error" && v) out.push("error=" + String(v).slice(0, 120));
-        }
-        return out;
-      };
-      if (node.allOk === false || node.pass === false) {
-        const why = falseKeys(node);
-        fails.push(why.length ? path + " (" + why.slice(0, 12).join(", ") +
-          (why.length > 12 ? ", +" + (why.length - 12) + " more" : "") + ")" : path);
-        return;
-      }
-      // an ok:false leaf (e.g. launcherGate, realKeys, a bridge guard) — but
-      // the root's own `ok` is the aggregate verdict, not a stage
-      if (!isRoot && node.ok === false && !("allOk" in node) && !("pass" in node)) { fails.push(path); return; }
-      for (const [k, v] of Object.entries(node)) walk(v, path ? path + "." + k : k, false);
-    };
-    walk(r, "", true);
-    if (!fails.length && r.ok === false) return "probe reported ok:false (no stage detail)";
-    return fails.length ? fails.join(", ") : null;
-  } catch { return null; }
+  try { return failingStages(JSON.parse(json)); } catch { return null; }
 }
 
 /** Pre-swap DOM-contract gate: run the FULL smoke probe — render, text layer,

@@ -5229,6 +5229,17 @@
         } else {
           try {
             await this._renderDocThumbCanvas(canvas, n);
+            /* A NEWER document started while this page was rendering. Both
+               lines below write state the new pass shares, and the top-of-loop
+               generation check comes too late to stop them:
+                 · caching under "d:<n>" makes the new strip blit THIS
+                   document's page into the new one's slot;
+                 · thumbRendered.add(n) lands in the set the new pass just
+                   cleared, so the new pass skips page n entirely and the
+                   sidebar stays permanently one page short.
+               Opening a second document before the strip finished was enough
+               to trigger it. */
+            if (gen !== this._thumbGen) return;
             this._pageThumbCache.set(key, canvas);
           } catch (e) { /* page render failed — skip */ }
         }

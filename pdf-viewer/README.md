@@ -10,7 +10,7 @@ OpenAI-compatible hosted API (OpenAI, Groq, OpenRouter, …).
 
 ### Option A — Desktop app (recommended)
 
-**Double-click the “Volt PDF Reader” desktop shortcut** (created by
+**Double-click the “Volt - Dev” desktop shortcut** (created by
 `scripts/create-volt-shortcut.ps1` — see “File association” below). The
 shortcut runs `wscript.exe` on `scripts/start-volt-app-hidden.vbs`, which
 starts the app with its console window **hidden** — so launching Volt behaves

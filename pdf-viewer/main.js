@@ -4454,8 +4454,24 @@ function runSmokeTest(w) {
                   // the Ctrl+A+A status toast mirrors the Ctrl+A toast: it must
                   // say how many pages were selected (with the char count) and
                   // carry the same Highlight-all affordance
-                  const tsA = document.querySelectorAll("#toasts .toast");
-                  const lastA = tsA.length ? tsA[tsA.length - 1] : null;
+                  /* WAIT for this toast; do not sleep 100ms and take whatever
+                     toast happens to be last. A toast from an earlier stage can
+                     still be on screen while this one is a frame away, and the
+                     probe then measured the WRONG toast - taking toastPages,
+                     toastChars, toastAction and the three hlAll assertions that
+                     hang off them down with it. Six red terms, one missed
+                     render: the whole intermittent pageMgr failure. */
+                  let lastA = null;
+                  for (let wA = 0; wA < 50; wA++) {
+                    const tsW = document.querySelectorAll("#toasts .toast");
+                    const cand = tsW.length ? tsW[tsW.length - 1] : null;
+                    if (cand && /Selected all text across 3 pages/.test(cand.textContent)) { lastA = cand; break; }
+                    await new Promise((r) => setTimeout(r, 100));
+                  }
+                  if (!lastA) {
+                    const tsW = document.querySelectorAll("#toasts .toast");
+                    lastA = tsW.length ? tsW[tsW.length - 1] : null; // fail with the real text
+                  }
                   aaa.toastPages = !!lastA && /Selected all text across 3 pages/.test(lastA.textContent);
                   aaa.toastChars = !!lastA && /chars/.test(lastA.textContent);
                   const actA = lastA && lastA.querySelector(".toast-action");
@@ -4494,13 +4510,26 @@ function runSmokeTest(w) {
                   await new Promise((r) => setTimeout(r, 100));
                   window.dispatchEvent(new KeyboardEvent("keydown", { key: "a", ctrlKey: true, bubbles: true, cancelable: true }));
                   await new Promise((r) => setTimeout(r, 150));
-                  const tsCL = document.querySelectorAll("#toasts .toast");
-                  const lastCL = tsCL.length ? tsCL[tsCL.length - 1] : null;
-                  const actCL = lastCL && lastCL.querySelector(".toast-action");
+                  /* Wait for the toast this stage means, do not sleep and take
+                     whatever is last. A leftover toast from an earlier stage
+                     could be read instead, and every clr assertion then failed
+                     against the wrong element. Same fault as the Ctrl+A+A
+                     stage above. */
+                  const waitAction = async (label) => {
+                    for (let wC = 0; wC < 50; wC++) {
+                      const ts = document.querySelectorAll("#toasts .toast");
+                      const last = ts.length ? ts[ts.length - 1] : null;
+                      const act = last && last.querySelector(".toast-action");
+                      if (act && act.textContent === label) return act;
+                      await new Promise((r) => setTimeout(r, 100));
+                    }
+                    const ts = document.querySelectorAll("#toasts .toast");
+                    const last = ts.length ? ts[ts.length - 1] : null;
+                    return last ? last.querySelector(".toast-action") : null; // fail with what is really there
+                  };
+                  const actCL = await waitAction("Highlight all");
                   if (actCL) actCL.click(); // conversion toast replaces the selection toast
-                  const tsC2 = document.querySelectorAll("#toasts .toast");
-                  const lastC2 = tsC2.length ? tsC2[tsC2.length - 1] : null;
-                  const actC2 = lastC2 && lastC2.querySelector(".toast-action");
+                  const actC2 = await waitAction("Clear highlights");
                   clr.btnShown = !!actC2 && actC2.textContent === "Clear highlights";
                   const beforeCLR = Ann2.list.length;
                   // the 3-second 'Really clear?' confirm (the pages-manager
@@ -4516,7 +4545,20 @@ function runSmokeTest(w) {
                       actC2.classList.contains("armed");
                     clr.noClearOnArm = Ann2.list.length === beforeCLR;
                     clr.toastStays = actC2.isConnected;
-                    await new Promise((r) => setTimeout(r, 3200)); // let the window expire
+                    /* The disarm is a 3000ms setTimeout in the renderer. Waiting
+                       a flat 3200ms left a 200ms margin against a timer that a
+                       loaded CI runner routinely fires late, and the assertion
+                       then failed for a product that was working. Worse, clr
+                       carries no allOk of its own, so the failure surfaced only
+                       as a bare "pageMgr" with no term named.
+                       Sleep most of the window (still armed proves it does not
+                       disarm early), then WAIT for the disarm rather than
+                       assuming it already happened. */
+                    await new Promise((r) => setTimeout(r, 2500));
+                    for (let w7 = 0; w7 < 60; w7++) {
+                      if (!actC2.classList.contains("armed")) break;
+                      await new Promise((r) => setTimeout(r, 100));
+                    }
                     clr.expiryDisarms = actC2.textContent === "Clear highlights" &&
                       !actC2.classList.contains("armed") && Ann2.list.length === beforeCLR;
                     actC2.click(); // re-arm for the deciding click
@@ -6038,11 +6080,27 @@ function runSmokeTest(w) {
                   disk.undoOffered === true && disk.fileRestored === true;
                 // back to the sample for the rest of the probe
                 Volt.App.openSample();
+                /* Wait for the sample's PAGES, not just its name. currentDocInfo
+                   is set as soon as the document is identified, while the
+                   thumbnail grid is rebuilt separately - so this returned with
+                   the previous document's 2 thumbs still on screen and the next
+                   stage looked for a page 3 that was not there yet. Waiting on
+                   the wrong signal is what made the whole failure intermittent. */
                 const dt1 = Date.now();
-                while (Date.now() - dt1 < 8000 &&
-                       (!Volt.App.currentDocInfo || Volt.App.currentDocInfo.name !== "The Quiet Engine — sample.pdf")) {
+                const sampleReady = () => Volt.App.currentDocInfo &&
+                  Volt.App.currentDocInfo.name === "The Quiet Engine — sample.pdf" &&
+                  document.querySelectorAll("#thumb-grid .thumb-item").length === 3;
+                while (Date.now() - dt1 < 15000 && !sampleReady()) {
                   await new Promise((r) => setTimeout(r, 200));
                 }
+                disk.sampleReopened = sampleReady();
+                // when the reopen comes back short, record WHAT is short: the
+                // document itself, the layout, or only the thumbnail strip
+                disk.reopenDocName = (Volt.App.currentDocInfo || {}).name || null;
+                disk.reopenLayoutPages = (Volt.App.pageLayout || []).length;
+                disk.reopenThumbs = document.querySelectorAll("#thumb-grid .thumb-item").length;
+                disk.reopenRendered = Volt.App.rendered ? Volt.App.rendered.size : null;
+                disk.reopenPdfPages = Volt.App.pdfDoc ? Volt.App.pdfDoc.numPages : null;
               } else {
                 disk.allOk = true; // browser mode / no temp — nothing to assert
               }
@@ -6060,7 +6118,17 @@ function runSmokeTest(w) {
               try {
                 const kg = document.getElementById("thumb-grid");
                 const kbT0 = Date.now();
-                while (Date.now() - kbT0 < 8000 && !kg.querySelector('.thumb-item[data-page="3"]')) {
+                /* Wait for BOTH thumbs this stage clicks, not just page 3.
+                   Waiting on page 3 alone let the block start while the grid
+                   was still rebuilding, and the page-1 lookup below returned
+                   null - "Cannot read properties of null (reading
+                   'dispatchEvent')". That threw into a catch that records only
+                   an error string, which no reporter was looking at, so the
+                   whole run failed as a bare "pageMgr".
+                   NO BACKTICKS IN THIS COMMENT - the probe is one template
+                   literal and a backtick here breaks the whole file. */
+                while (Date.now() - kbT0 < 8000 && !(kg.querySelector('.thumb-item[data-page="1"]') &&
+                  kg.querySelector('.thumb-item[data-page="3"]'))) {
                   await new Promise((r) => setTimeout(r, 100));
                 }
                 // make the annotation state fully deterministic for THIS stage:
@@ -6082,9 +6150,30 @@ function runSmokeTest(w) {
                 // identity, saving the clean list to the wrong key (the sample
                 // key would keep the accumulated junk for the real-key stage)
                 Ann2._save();
-                await new Promise((r) => setTimeout(r, 200)); // badges render
-                const k1 = kg.querySelector('.thumb-item[data-page="1"]');
-                const k3 = kg.querySelector('.thumb-item[data-page="3"]');
+                /* Poll for the two thumbs, do not sleep a flat 200ms. The
+                   _mutate above rebuilds the grid, so any element found before
+                   it is stale and the rebuild does not always finish inside
+                   200ms on a loaded machine - the lookups then returned null
+                   and the click threw "Cannot read properties of null (reading
+                   dispatchEvent)", failing the whole run.
+                   NO BACKTICKS IN THIS COMMENT - the probe is one template
+                   literal and a backtick here breaks the whole file. */
+                let k1 = null, k3 = null;
+                for (let wK = 0; wK < 80; wK++) {
+                  k1 = kg.querySelector('.thumb-item[data-page="1"]');
+                  k3 = kg.querySelector('.thumb-item[data-page="3"]');
+                  if (k1 && k3) break;
+                  await new Promise((r) => setTimeout(r, 100));
+                }
+                kbMove.thumbsReady = !!(k1 && k3); // names the cause if it ever times out
+                kbMove.gridPages = [...kg.querySelectorAll(".thumb-item")]
+                  .map((it) => it.dataset.page).join(",");
+                kbMove.planLen = (App2._pagePlan || []).length;
+                kbMove.docName = App2.docName || null;
+                if (!k1 || !k3) {
+                  throw new Error("kbMove: thumbs never appeared (k1=" + !!k1 + " k3=" + !!k3 +
+                    ") grid=[" + kbMove.gridPages + "] plan=" + kbMove.planLen + " doc=" + kbMove.docName);
+                }
                 // Ctrl+click toggles each thumb in — Shift+click now RANGES
                 // (anchored), so the non-contiguous {1,3} pair the block-move
                 // tests need (exactly two pages, the blank excluded) comes
@@ -6161,6 +6250,19 @@ function runSmokeTest(w) {
             pageMgr.clr = clr;    // "Clear highlights" quick action on the conversion toast
             pageMgr.aiW = aiW;   // AI pane resize + quick-row removal
             pageMgr.recent = recent; // home screen recents
+            /* A term that is UNDEFINED cannot be seen in the dump - JSON.stringify
+               drops the key - so this stage can fail with every visible boolean
+               true and nothing to point at. Name them while they are still
+               visible in JS. (A key that was never assigned at all still hides;
+               diff the key set against a passing dump for that.) */
+            pageMgr.undefinedTerms = [];
+            for (const grp of [["pageMgr", pageMgr], ["ctrlA", ctrlA], ["hlAll", hlAll],
+              ["wsel", wsel], ["aaa", aaa], ["clr", clr], ["aiW", aiW], ["recent", recent],
+              ["bsel", bsel], ["bhl", bhl]]) {
+              for (const k of Object.keys(grp[1])) {
+                if (grp[1][k] === undefined) pageMgr.undefinedTerms.push(grp[0] + "." + k);
+              }
+            }
             pageMgr.allOk =              pageMgr.opened === true && pageMgr.initialThumbs === 3 && pageMgr.initialPlan === 3 &&
               pageMgr.thumbRendered === true && pageMgr.sizeBadge === true && pageMgr.sizeAccurate === true &&
               pageMgr.annBadge === true && pageMgr.annNone === true &&
@@ -6923,7 +7025,19 @@ function runSmokeTest(w) {
               const saved6 = An6.list.slice();
               An6.list.length = 0;
 
-              const span6 = document.querySelector(".page-text-layer span");
+              /* Poll, do not read once. Earlier stages (aaa, pageMgr) delete
+                 rendered pages, reorder the plan and force re-renders, so the
+                 text layer can legitimately be empty for a frame or two when
+                 this probe starts — a single querySelector then reported
+                 hasSpan:false and took replacementInFile and singleCover down
+                 with it, which is a lie about the text editor. Every other
+                 timing-exposed probe in this file already waits like this. */
+              let span6 = null;
+              for (let w6 = 0; w6 < 50; w6++) {
+                span6 = document.querySelector(".page-text-layer span");
+                if (span6) break;
+                await sleep6(100);
+              }
               textEdit.hasSpan = !!span6;
               const wrap6 = span6 && span6.closest(".page-wrap");
               const box6 = (span6 && wrap6) ? An6._spanBboxPdf(span6, wrap6) : null;

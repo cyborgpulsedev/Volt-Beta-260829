@@ -4,6 +4,26 @@ Each release is a `## x.y.z` section. The version banner tooltip shows the
 sections newer than the installed bundle, so a pending update tells you what
 changed before you restart.
 
+## 1.0.20
+
+**A page could go missing from the thumbnail strip.** If you opened a second
+document before the strip down the side had finished drawing, it could be left
+permanently one page short — and a thumbnail it did show could be a picture of
+a page from the document you just closed. The document itself was always fine:
+every page was there, and printing, exporting and saving were never affected.
+It was the strip that lied about it.
+
+- **Opening one document while another is still loading no longer corrupts the
+  page thumbnails.** The old drawing pass could finish a page after the new one
+  had started and write that page into the new document's strip, which also
+  made the new pass skip that page entirely. Larger documents and slower
+  machines hit it more often, because the strip takes longer to finish.
+- **Nothing else about using Volt changes** in this release.
+- Internally, three self-tests were fixed that could fail while the product was
+  working, and a failing self-test now names the exact check that failed rather
+  than the section it lived in. It was that last change that exposed the
+  thumbnail bug above, which had been dismissed as a flaky test for weeks.
+
 ## 1.0.19
 
 **Digital signing works with every certificate.** Signing a PDF failed for

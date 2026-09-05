@@ -32,3 +32,4 @@ Thumbs.db
 # Freebuff internal planning (never commit)
 .freebuff/
 .planning/
+pdf-viewer/smoke-failure.json
