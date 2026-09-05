@@ -1187,6 +1187,13 @@ async function toolbarResizeStage(w) {
       // probes below. Poll the renderer for the target inner width (outer
       // minus the platform frame chrome, measured in the renderer), retry the
       // setSize once, and only record the size once it settles.
+      //
+      // The request itself was MISSING: the loop polled for a width it had
+      // never asked for, so every size waited out the full 2s window and was
+      // only ever resized by the "retry" branch below. That wasted ~14s a run
+      // and, worse, left the real resize with a single 2s window on exactly
+      // the loaded runners this polling exists to survive.
+      w.setSize(w_, h);
       const settled = await js(`(async () => {
         const frame = window.outerWidth - window.innerWidth;
         const target = ${w_} - frame;

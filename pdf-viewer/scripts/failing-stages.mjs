@@ -23,6 +23,23 @@
 
 const SKIP = new Set(["allOk", "pass", "ok"]);
 
+/* A subtree that declares itself healthy is not evidence about a failure.
+   toolbarResize records `overflow: false` and `label: false` per window size
+   as ordinary MEASUREMENTS - both are the normal reading at most sizes - so a
+   deep scan harvested a dozen of them, filled the report, and pushed the real
+   cause into "+5 more". If a node carries its own verdict and that verdict is
+   true, its contents are readings, not findings. */
+const isVerdict = (k) => k === "ok" || k === "allOk" || k === "pass" || /^[a-z]\w*Ok$/.test(k);
+function declaresHealthy(node) {
+  let sawVerdict = false;
+  for (const [k, v] of Object.entries(node)) {
+    if (!isVerdict(k)) continue;
+    if (v === false) return false; // it says it failed - definitely look inside
+    if (v === true) sawVerdict = true;
+  }
+  return sawVerdict;
+}
+
 /** Every false leaf under a node, named by path relative to it. */
 function falseLeaves(node, path, out) {
   for (const [k, v] of Object.entries(node)) {
@@ -30,7 +47,9 @@ function falseLeaves(node, path, out) {
     if (v === false && !SKIP.has(k)) out.push(here);
     // a group that threw records only `error` - not false, but the whole story
     else if (k === "error" && v) out.push(here + "=" + String(v).slice(0, 120));
-    else if (v && typeof v === "object") falseLeaves(v, here, out);
+    else if (v && typeof v === "object") {
+      if (Array.isArray(v) || !declaresHealthy(v)) falseLeaves(v, here, out);
+    }
   }
   return out;
 }
