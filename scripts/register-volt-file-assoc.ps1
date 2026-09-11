@@ -18,7 +18,12 @@ param([switch]$Revert, [switch]$Silent)
 $ErrorActionPreference = 'Stop'
 $project  = Split-Path $PSScriptRoot -Parent
 $appRoot  = Join-Path $project 'pdf-viewer'
-$exe      = Join-Path $appRoot 'node_modules\electron\dist\electron.exe'
+# Prefer the branded copy start-volt-app.cmd stamps with rcedit. Explorer's
+# "Open with" list and the default-apps picker both show the EXE's embedded
+# FileDescription, so registering raw electron.exe makes Volt appear as
+# "Electron". The stamped copy reads "Volt". Fall back only if it is absent.
+$voltExe  = Join-Path $appRoot 'node_modules\electron\dist\Volt.exe'
+$exe      = if (Test-Path $voltExe) { $voltExe } else { Join-Path $appRoot 'node_modules\electron\dist\electron.exe' }
 $ico      = Join-Path $appRoot 'assets\volt.ico'
 $progId   = 'Volt.PDF'
 $classes  = 'HKCU:\Software\Classes'
@@ -41,22 +46,51 @@ public static extern void SHChangeNotify(int wEventId, int uFlags, IntPtr dwItem
 '@
 function Refresh-Icons { [Volt.Shell]::SHChangeNotify(0x08000000, 0, [IntPtr]::Zero, [IntPtr]::Zero) }
 
+# New-Item -Force on an EXISTING registry key deletes and recreates it, taking
+# every subkey with it - so forcing .pdf would silently destroy OpenWithProgids
+# (and any other app's entry sitting under there). Only create what is missing.
+function Ensure-Key($p) { if (-not (Test-Path $p)) { New-Item -Path $p -Force | Out-Null } }
+
 if ($Revert) {
     # restore the pre-Volt association (if we backed one up), then remove Volt's ProgID
     $prev = (Get-ItemProperty -Path $backup -Name '(default)' -ErrorAction SilentlyContinue).'(default)'
     if ($prev) {
-        New-Item -Path $pdfKey -Force | Out-Null
+        Ensure-Key $pdfKey
         Set-ItemProperty -Path $pdfKey -Name '(default)' -Value $prev
         Remove-Item -Path $backup -Recurse -Force -ErrorAction SilentlyContinue
         Write-Host "Restored previous .pdf association: $prev"
     } else {
-        Remove-Item -Path $pdfKey -Force -ErrorAction SilentlyContinue
+        # clear only OUR default value; deleting the .pdf key itself would take
+        # every other app's OpenWithProgids entry with it
+        Remove-ItemProperty -Path $pdfKey -Name '(default)' -ErrorAction SilentlyContinue
         Write-Host 'No backup found - removed the .pdf association.'
     }
+    Remove-ItemProperty -Path (Join-Path $pdfKey 'OpenWithProgids') -Name $progId -ErrorAction SilentlyContinue
     Remove-Item -Path $progKey -Recurse -Force -ErrorAction SilentlyContinue
     Refresh-Icons
     exit 0
 }
+
+# ---- our own ProgID: always refresh -------------------------------
+# This describes OUR entry, not the user's choice of default app, so it is
+# rewritten on every run. Without this a machine registered by an older copy
+# keeps pointing at electron.exe forever  -  the early exit below would skip it.
+Ensure-Key $progKey
+Set-ItemProperty -Path $progKey -Name '(default)' -Value 'Volt PDF Reader'
+
+$iconKey = Join-Path $progKey 'DefaultIcon'
+Ensure-Key $iconKey
+Set-ItemProperty -Path $iconKey -Name '(default)' -Value "`"$ico`",0"
+
+# double-click -> Volt.exe <app root> <file>
+$openCmd = Join-Path $progKey 'shell\open\command'
+Ensure-Key $openCmd
+Set-ItemProperty -Path $openCmd -Name '(default)' -Value "`"$exe`" `"$appRoot`" `"%1`""
+
+# "Open with..." menu entry so Volt appears there too
+$owp = Join-Path $pdfKey 'OpenWithProgids'
+Ensure-Key $owp
+Set-ItemProperty -Path $owp -Name $progId -Value ''
 
 # ---- decide whether to take over ----------------------------------
 $current = (Get-ItemProperty -Path $pdfKey -Name '(default)' -ErrorAction SilentlyContinue).'(default)'
@@ -70,38 +104,20 @@ if ($current -and -not $alreadyVolt -and -not $firstTime) {
         Write-Host ".pdf is currently associated with '$current' - leaving it as is." -ForegroundColor Yellow
         Write-Host "Run with -Revert to fully remove Volt, or re-register manually."
     }
+    Refresh-Icons
     exit 0
 }
 
 if ($current -and -not $alreadyVolt) {
-    New-Item -Path $backup -Force | Out-Null
+    Ensure-Key $backup
     Set-ItemProperty -Path $backup -Name '(default)' -Value $current
     if (-not $Silent) { Write-Host "Backed up previous .pdf association ($current)." }
 }
 
-# ---- register ------------------------------------------------------
+# ---- take over the default ------------------------------------------
 # HKCU\Software\Classes\.pdf -> Volt.PDF
-New-Item -Path $pdfKey -Force | Out-Null
+Ensure-Key $pdfKey
 Set-ItemProperty -Path $pdfKey -Name '(default)' -Value $progId
-
-# "Open with..." menu entry so Volt appears there too
-$owp = Join-Path $pdfKey 'OpenWithProgids'
-New-Item -Path $owp -Force | Out-Null
-Set-ItemProperty -Path $owp -Name $progId -Value ''
-
-# Volt.PDF ProgID
-New-Item -Path $progKey -Force | Out-Null
-Set-ItemProperty -Path $progKey -Name '(default)' -Value 'Volt PDF Reader'
-
-# PDF file icons show the Volt icon in Explorer
-$iconKey = Join-Path $progKey 'DefaultIcon'
-New-Item -Path $iconKey -Force | Out-Null
-Set-ItemProperty -Path $iconKey -Name '(default)' -Value "`"$ico`",0"
-
-# double-click -> electron.exe <app root> <file>
-$openCmd = Join-Path $progKey 'shell\open\command'
-New-Item -Path $openCmd -Force | Out-Null
-Set-ItemProperty -Path $openCmd -Name '(default)' -Value "`"$exe`" `"$appRoot`" `"%1`""
 
 Refresh-Icons
 
@@ -113,7 +129,7 @@ if (-not $Silent) {
 }
 
 # explicit success exit: callers (e.g. create-volt-shortcut.ps1) rely on
-# $LASTEXITCODE -eq 0 to detect success — without this, the script falls off
+# $LASTEXITCODE -eq 0 to detect success  -  without this, the script falls off
 # the end and leaves the caller's $LASTEXITCODE untouched
 # (and potentially unset) even though the association was registered.
 exit 0

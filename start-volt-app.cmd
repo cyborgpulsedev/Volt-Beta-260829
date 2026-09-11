@@ -43,11 +43,6 @@ if not exist "node_modules\electron\dist\electron.exe" (
   )
 )
 
-rem Make double-clicking a .pdf open it in Volt. Idempotent and safe:
-rem backs up the previous association, never overrides a later change,
-rem and can be undone with register-volt-file-assoc.ps1 -Revert.
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\register-volt-file-assoc.ps1" -Silent >nul 2>nul
-
 rem Task Manager labels a process by its executable name and embedded
 rem FileDescription, so a raw dev run shows up as several "Electron"
 rem entries. Make a Volt.exe copy once and stamp its version resource and
@@ -62,6 +57,13 @@ if not exist "%VOLT_EXE%" (
     "%RCEDIT%" "%VOLT_EXE%" --set-version-string "FileDescription" "Volt" --set-version-string "ProductName" "Volt" --set-version-string "CompanyName" "Volt" --set-icon "assets\volt.ico" >nul 2>nul
   )
 )
+
+rem Make double-clicking a .pdf open it in Volt. Idempotent and safe:
+rem backs up the previous association, never overrides a later change,
+rem and can be undone with register-volt-file-assoc.ps1 -Revert.
+rem Runs AFTER the branded Volt.exe exists  -  registering before it is stamped
+rem points Explorer's "Open with" list at electron.exe, which shows "Electron".
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\register-volt-file-assoc.ps1" -Silent >nul 2>nul
 
 if exist "%VOLT_EXE%" (
   "%VOLT_EXE%" .
