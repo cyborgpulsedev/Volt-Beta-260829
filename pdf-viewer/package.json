@@ -34,7 +34,8 @@
     "release": "node scripts/release.cjs",
     "sign:check": "node scripts/check-signing.cjs",
     "sign:setup": "node scripts/signing-setup.cjs",
-    "release:finish": "node scripts/finish-release.cjs"
+    "release:finish": "node scripts/finish-release.cjs",
+    "ci:local": "node ../scripts/ci-local.mjs"
   },
   "dependencies": {
     "electron-updater": "^6.8.9"
