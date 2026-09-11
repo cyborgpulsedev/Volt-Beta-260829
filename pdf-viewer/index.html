@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Volt — local PDF reader &amp; AI editor</title>
-<link rel="stylesheet" href="css/style.css?v=93e38d7f">
+<link rel="stylesheet" href="css/style.css?v=cc695701">
 <link rel="icon" type="image/png" href="assets/favicon-32.png">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="assets/icon-192.png">
@@ -738,7 +738,7 @@
           </div>
         </div>
         <div class="ai-foot">
-          <span id="ai-context-line">Context: whole document</span>
+          <button id="ai-context-line" class="ctx-btn" title="Choose what the AI reads: search automatically, only the pages you name, or only your highlighted text">Context: whole document</button>
           <span class="ai-foot-actions">
             <button id="ai-foot-ask-sel" class="quick-btn" data-action="ask-sel" title="Send the selected document text to the chat and focus the AI on it (Ctrl+Shift+J)">Ask about selection</button>
             <button id="ai-foot-tools" class="quick-btn tools-toggle" aria-pressed="true">Actions on</button>
@@ -794,6 +794,35 @@
      #app.inert = true to block the background, and an inert subtree cannot
      hold focus — a modal inside it would have its focused field asynchronously
      evicted to <body> by Chromium, silently breaking real Tab navigation. -->
+  <!-- CONTEXT SCOPE (the footer "Context:" button in the AI panel): choose what
+       the model is allowed to read. Volt's default is to search the document
+       and send the best-matching pages, which is a guess — and on a document
+       the reader knows, the worse guess. These options overrule it. -->
+  <div id="ctx-modal" class="modal" hidden>
+    <div class="modal-card small">
+      <h3>What should the AI read?</h3>
+      <p class="modal-sub">Volt normally searches the document and sends the pages that best match your question. Pick something else here and it will send exactly that instead.</p>
+      <label class="ctx-opt">
+        <input type="radio" name="ctx-mode" value="auto">
+        <span><b>Search automatically</b><small>Volt chooses the pages it thinks match. The default.</small></span>
+      </label>
+      <label class="ctx-opt">
+        <input type="radio" name="ctx-mode" value="pages">
+        <span><b>Only these pages</b><small>You choose. Nothing else is sent.</small></span>
+      </label>
+      <input id="ctx-pages" type="text" placeholder="1-5, 12, 40" spellcheck="false" aria-label="Page numbers to send">
+      <p class="modal-sub ctx-total" id="ctx-total"></p>
+      <label class="ctx-opt">
+        <input type="radio" name="ctx-mode" value="selection">
+        <span><b>Only my highlighted text</b><small>No pages at all — just what you selected in the document.</small></span>
+      </label>
+      <div class="modal-actions">
+        <button id="ctx-cancel" class="ghost-btn">Cancel</button>
+        <button id="ctx-apply" class="primary-btn">Apply</button>
+      </div>
+    </div>
+  </div>
+
   <div id="url-modal" class="modal" hidden>
     <div class="modal-card small">
       <h3 id="url-modal-title">Open PDF from URL</h3>
@@ -1958,17 +1987,17 @@
   </script>
   <script src="vendor/pdf-lib.min.js?v=0f9a5cad"></script>
   <script src="vendor/tesseract/tesseract.min.js?v=a8e29918"></script>
-  <script src="js/utils.js?v=671c661e"></script>
+  <script src="js/utils.js?v=fcbffb90"></script>
   <script src="js/sample-data.js?v=ee9b0500"></script>
   <script src="js/annotations.js?v=20f275a6"></script>
   <script src="js/bookmarks.js?v=58fca96e"></script>
   <script src="js/pdf-secure.js?v=358d9f0c"></script>
   <script src="js/pdf-iso.js?v=e216fff3"></script>
   <script src="js/pdf-sign.js?v=9236a3c3"></script>
-  <script src="js/ai.js?v=f7165cef"></script>
+  <script src="js/ai.js?v=c9537006"></script>
   <script src="js/ocr.js?v=c259b0bc"></script>
   <script src="js/voice.js?v=51aede49"></script>
   <script src="js/office-export.js?v=cd792b93"></script>
-  <script src="js/app.js?v=f4723e46"></script>
+  <script src="js/app.js?v=859f8b95"></script>
 </body>
 </html>

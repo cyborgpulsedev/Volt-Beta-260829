@@ -2774,6 +2774,79 @@ body.resizing-sidebar * { cursor: ew-resize !important; }
   padding: 0 2px;
 }
 .ai-foot-right { font-family: var(--mono); }
+
+/* the Context line is a BUTTON (it opens the scope picker) but has to keep
+   reading as the quiet status text it replaced — no chrome until hovered */
+.ctx-btn {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 2px 7px;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  /* never the thing that shrinks: this line is what the reader checks to see
+     which pages the answer came from, so the buttons beside it give way */
+  flex: none;
+  transition: color 0.15s var(--ease), border-color 0.15s var(--ease), background 0.15s var(--ease);
+}
+.ctx-btn:hover, .ctx-btn:focus-visible {
+  color: var(--text);
+  border-color: var(--border);
+  background: var(--accent-soft);
+}
+/* a locked scope is not the default — say so without a second line of text */
+.ctx-btn.ctx-locked { color: var(--accent); border-color: var(--accent-soft); }
+
+/* the scope picker's options */
+.ctx-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  margin-bottom: 7px;
+  cursor: pointer;
+}
+.ctx-opt:hover { background: var(--accent-soft-2); }
+.ctx-opt input { margin-top: 2px; flex: none; }
+.ctx-opt b { display: block; font-size: 13px; font-weight: 600; color: var(--text); }
+.ctx-opt small { display: block; font-size: 11.5px; color: var(--text-dim); margin-top: 2px; line-height: 1.45; }
+#ctx-pages { margin: -2px 0 2px; }
+/* dimmed, never disabled - clicking the box IS how you choose "these pages" */
+#ctx-pages.dimmed { opacity: 0.5; }
+#ctx-pages.dimmed:focus { opacity: 1; }
+.ctx-total { margin: 4px 0 12px; font-size: 11.5px; }
+
+/* ── "VOLT" thinking indicator ──
+   Shown in place of the empty reply bubble while the model is composing its
+   first token. Pure CSS: a JS timer would keep ticking behind a hidden panel
+   and in an occluded window, where Electron throttles timers to 1 fps. */
+.volt-think {
+  display: inline-flex;
+  gap: 3px;
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 2px;
+}
+.volt-think i {
+  font-style: normal;
+  opacity: 0.22;
+  animation: volt-think-pulse 1.25s ease-in-out infinite;
+}
+.volt-think i:nth-child(1) { color: var(--accent);   animation-delay: 0s; }
+.volt-think i:nth-child(2) { color: var(--accent-2); animation-delay: 0.14s; }
+.volt-think i:nth-child(3) { color: var(--accent-3); animation-delay: 0.28s; }
+.volt-think i:nth-child(4) { color: var(--accent);   animation-delay: 0.42s; }
+@keyframes volt-think-pulse {
+  0%, 100% { opacity: 0.22; text-shadow: none; }
+  40%      { opacity: 1; text-shadow: 0 0 10px currentColor; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .volt-think i { animation: none; opacity: 0.85; }
+}
 /* the 'Clear highlights' / 'Copy highlights' utility actions moved out of
    the (now removed) quick-prompt row into the foot line — compact so the
    input area stays one row tall and the pane keeps its typing space */

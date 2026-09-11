@@ -175,6 +175,8 @@
         aiGlobalPop: $("ai-global-pop"), aiGlobalInput: $("ai-global-input"),
         aiGlobalSave: $("ai-global-save"), aiGlobalCancel: $("ai-global-cancel"),
         aiContextLine: $("ai-context-line"), aiFootRight: $("ai-foot-right"),
+        ctxModal: $("ctx-modal"), ctxPages: $("ctx-pages"), ctxTotal: $("ctx-total"),
+        ctxApply: $("ctx-apply"), ctxCancel: $("ctx-cancel"),
         aiBootstrap: $("ai-bootstrap"), aiBootstrapTitle: $("ai-bootstrap-title"), aiBootstrapBody: $("ai-bootstrap-body"),
         aiBootstrapPrimary: $("ai-bootstrap-primary"), aiBootstrapSettings: $("ai-bootstrap-settings"), aiBootstrapDismiss: $("ai-bootstrap-dismiss"),
         aiBootstrapProgress: $("ai-bootstrap-progress"), aiBootstrapProgressBar: $("ai-bootstrap-progress-bar"), aiBootstrapProgressLabel: $("ai-bootstrap-progress-label"),
@@ -373,6 +375,23 @@
       el.urlGo.addEventListener("click", () => this._submitUrl());
       el.urlInput.addEventListener("keydown", (e) => { if (e.key === "Enter") this._submitUrl(); });
       el.urlCancel.addEventListener("click", () => this._closeModal(el.urlModal));
+
+      // context scope: the AI panel's footer line opens the picker
+      if (el.aiContextLine) el.aiContextLine.addEventListener("click", () => Volt.AI.openContextPicker());
+      if (el.ctxModal) {
+        el.ctxApply.addEventListener("click", () => Volt.AI.applyContextPicker());
+        el.ctxCancel.addEventListener("click", () => this._closeModal(el.ctxModal));
+        el.ctxPages.addEventListener("keydown", (e) => { if (e.key === "Enter") Volt.AI.applyContextPicker(); });
+        // typing a page number is itself a choice of "only these pages" —
+        // making the reader click the radio first is a trap they will hit once
+        el.ctxPages.addEventListener("focus", () => {
+          const r = el.ctxModal.querySelector('input[name="ctx-mode"][value="pages"]');
+          if (r && !r.checked) { r.checked = true; Volt.AI._syncContextPicker(); }
+        });
+        for (const r of el.ctxModal.querySelectorAll('input[name="ctx-mode"]')) {
+          r.addEventListener("change", () => Volt.AI._syncContextPicker());
+        }
+      }
 
       this._renderRecents(); // home screen: recently opened documents
 
@@ -4085,6 +4104,7 @@
       }
       if (Volt.Bm) Volt.Bm.loadForDoc(this.currentDocInfo); // bookmarks follow the same doc identity
       Volt.AI._pageTexts = null;
+      Volt.AI.resetContextScope(); // "pages 3-7" describes a file, not a habit
       Volt.AI._closeDocPopover();
       this._hideRestoreSummary(); // a stale summary from a previous restore must not linger on a new doc
       if (Volt.AI._closeGlobalPop) Volt.AI._closeGlobalPop();

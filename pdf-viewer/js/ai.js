@@ -167,6 +167,14 @@
     messages: [],            // [{role, content, sources, error}]
     streaming: false,
     abortCtrl: null,
+    /* What the model is allowed to read. "auto" scores pages against the
+       question; the other two are the reader overruling that guess. Search is
+       a guess, and on a document the reader already knows it is the worse
+       guess — so an explicit choice wins outright rather than being blended
+       in. Held per session and cleared when another document opens: a page
+       list means nothing in a different file. */
+    contextMode: "auto",     // "auto" | "pages" | "selection"
+    contextPages: [],        // page numbers, in the order they are sent
     _pageTexts: null,        // cache [{page, text}] for current doc
     _chatHistory: null,      // per-file chat persistence key
     _pendingRestore: [],     // undo stack of doc-override snapshots (all-reset or per-field)
@@ -1278,16 +1286,14 @@
           this.settings.provider === "gemini" ? "Gemini" :
           this.settings.provider === "groq" ? "Groq" :
           this.settings.provider === "openrouter" ? "OpenRouter" : this.settings.baseUrl.replace(/^https?:\/\//, "").split("/")[0];
-        // with the header picker visible the line must stay short (the picker
-        // already shows the model) — drop the provider suffix so "· this doc"
-        // never gets ellipsized away in the narrow panel
-      // the picker already shows the model — drop the provider suffix only when
-      // the *per-doc* picker is visible, so the marker never gets ellipsized
-      // away. The global picker keeps the provider on the line: the endpoint
-      // identity matters most when no document is pinning a model.
-      const pickerShown = !this._app().elements.aiModelPicker.hidden;
-      el.textContent = `${eff.model}${pickerShown ? "" : " · " + who}`;
-        foot.textContent = eff.model;
+        /* The model name belongs in ONE place: the chip you change it in.
+           Exactly one picker is visible whenever a model is configured — the
+           per-document one with a file open, the global one without — so this
+           line and the footer were both repeating what the chip already said,
+           three copies of the same string in a 340px panel. The line now
+           carries what the chip cannot: WHERE the model runs. */
+        el.textContent = who;
+        foot.textContent = "";
         this._app().elements.sbAi.textContent = `AI: ${eff.model}${docOverride ? " (doc)" : ""}`;
       }
       // local models cold-start: set expectations in the welcome card
@@ -2676,13 +2682,148 @@
       return this._pageTexts;
     },
 
-    /** Build grounded context: chunk + score top pages against the question. */
+    /* ── context scope (what the model is allowed to read) ──── */
+
+    /** The footer line. With no argument it reports the STANDING scope (what
+        the next question will read); with the pages a question actually used,
+        it reports those. Locked scopes are marked so a surprising answer can
+        be traced to the scope without opening anything. */
+    _renderContextLine(sources) {
+      const el = this._app().elements.aiContextLine;
+      if (!el) return;
+      const lock = this.contextMode !== "auto" ? "🔒 " : "";
+      /* The footer is a narrow strip shared with three buttons, so a long page
+         list has to stop somewhere — name the first few and count the rest.
+         The full list is always one click away in the picker. */
+      const list = (pages) => {
+        const shown = pages.slice(0, 4).map((p) => "p." + p).join(", ");
+        return pages.length > 4 ? `${shown} +${pages.length - 4} more` : shown;
+      };
+      let text;
+      if (Array.isArray(sources)) {
+        text = sources.length
+          ? "Context: " + list(sources)
+          : (this.contextMode === "selection" ? "Context: your selection only" : "Context: question only");
+      } else if (this.contextMode === "selection") {
+        text = "Context: your selection only";
+      } else if (this.contextMode === "pages" && this.contextPages.length) {
+        text = "Context: " + list(this.contextPages);
+      } else {
+        text = "Context: whole document";
+      }
+      el.textContent = lock + text;
+      el.title = this.contextMode === "pages" && this.contextPages.length
+        ? "The AI reads only p." + Utils.formatPageList(this.contextPages).replace(/, /g, ", p.") + " — click to change"
+        : "Choose what the AI reads: search automatically, only the pages you name, or only your highlighted text";
+      el.classList.toggle("ctx-locked", this.contextMode !== "auto");
+    },
+
+    /** Reset to automatic search. Called when another document opens, because
+        "pages 3-7" describes a file, not a habit. */
+    resetContextScope() {
+      this.contextMode = "auto";
+      this.contextPages = [];
+      this._renderContextLine();
+    },
+
+    /** Fill the picker from the live scope and show it. */
+    openContextPicker() {
+      const el = this._app().elements;
+      const app = this._app();
+      if (!el.ctxModal) return;
+      const pages = this.contextPages.length ? this.contextPages : (app._currentPageNum() ? [app._currentPageNum()] : []);
+      el.ctxPages.value = Utils.formatPageList(pages);
+      for (const r of el.ctxModal.querySelectorAll('input[name="ctx-mode"]')) {
+        r.checked = r.value === this.contextMode;
+      }
+      el.ctxTotal.textContent = app.currentDoc ? `This document has ${app.currentDoc.numPages} pages.` : "";
+      this._syncContextPicker();
+      app._openModal(el.ctxModal);
+      el.ctxPages.focus();
+    },
+
+    /** Dim the page box when another scope is chosen — but never DISABLE it:
+        a disabled input cannot take focus, and clicking it is exactly how a
+        reader says "only these pages" without hunting for the radio first. */
+    _syncContextPicker() {
+      const el = this._app().elements;
+      const mode = (el.ctxModal.querySelector('input[name="ctx-mode"]:checked') || {}).value || "auto";
+      el.ctxPages.classList.toggle("dimmed", mode !== "pages");
+    },
+
+    /** Apply the picker. An empty or unparseable page list in "only these
+        pages" is refused rather than silently falling back to search — a
+        scope the reader believes is locked but isn't is the worst outcome. */
+    applyContextPicker() {
+      const el = this._app().elements;
+      const app = this._app();
+      const mode = (el.ctxModal.querySelector('input[name="ctx-mode"]:checked') || {}).value || "auto";
+      if (mode === "pages") {
+        const max = app.currentDoc ? app.currentDoc.numPages : 0;
+        const pages = Utils.parsePageList(el.ctxPages.value, max);
+        if (!pages.length) {
+          // the example has to fit THIS document — offering "1-5, 12" for a
+          // 3-page file is the app telling the reader to type something wrong
+          const eg = max >= 12 ? "1-5, 12" : max > 1 ? "1-" + max : "1";
+          app.toast(max ? `Type page numbers between 1 and ${max} — e.g. ${eg}` : "Open a document first", "error");
+          el.ctxPages.focus();
+          return;
+        }
+        this.contextPages = pages;
+        this.contextMode = "pages";
+        app.toast("The AI will read only p." + Utils.formatPageList(pages).replace(/, /g, ", p."), "ok");
+      } else {
+        this.contextMode = mode;
+        this.contextPages = [];
+        app.toast(mode === "selection"
+          ? "The AI will read only your highlighted text"
+          : "The AI will search the document again", "ok");
+      }
+      this._renderContextLine();
+      app._closeModal(el.ctxModal);
+    },
+
+    /** Take pages in the order given until the character budget runs out.
+        The last page in is truncated rather than dropped, so a budget that
+        lands mid-page still contributes what fits. */
+    _fillBudget(list, maxChars) {
+      const picked = [];
+      let budget = maxChars;
+      for (const s of list) {
+        if (s.text.length > budget) {
+          picked.push({ page: s.page, text: s.text.slice(0, Math.floor(budget)) });
+          break;
+        }
+        picked.push({ page: s.page, text: s.text });
+        budget -= s.text.length;
+      }
+      return picked;
+    },
+
+    /** Build grounded context: chunk + score top pages against the question,
+        unless the reader has pinned an explicit scope. */
     async buildContext(question, extraText = "") {
       const cache = await this.ensurePageTexts();
       const pages = cache.pages.filter((p) => p.text.length > 40);
       if (!pages.length) return { context: extraText, sources: [] };
 
       const maxChars = this._effective().maxContextChars || 8000;
+
+      /* Reader's choice, checked before any scoring. "Only my selection"
+         sends no pages at all — highlighting a clause and then receiving
+         six unrelated pages is the complaint this exists to answer. */
+      if (this.contextMode === "selection") {
+        return { context: this._assemble([], extraText, maxChars), sources: [] };
+      }
+      if (this.contextMode === "pages" && this.contextPages.length) {
+        const byPage = new Map(pages.map((p) => [p.page, p]));
+        // a chosen page with no extractable text is silently absent from the
+        // map; keep the reader's order rather than re-sorting by anything
+        const chosen = this.contextPages.map((n) => byPage.get(n)).filter(Boolean);
+        const picked = this._fillBudget(chosen, maxChars);
+        return { context: this._assemble(picked, extraText, maxChars), sources: picked.map((p) => p.page) };
+      }
+
       const queryTokens = Utils.tokenize(question);
       const totalChunks = pages.reduce((n, p) => n + Utils.chunkText(p.text).length, 0) || 1;
       const docFreq = {};
@@ -2721,28 +2862,25 @@
         }
       }
 
-      // take top pages until budget
-      const picked = [];
-      let budget = maxChars;
+      // take top pages until budget — a pinned page rides on the user's
+      // say-so, a scoreless unpinned one has nothing to contribute
+      const ranked = [];
       for (const s of scored) {
-        if (!s.score && !s.pinned) break; // a pinned page is included on the user's say-so, not its score
-        if (s.text.length > budget) {
-          picked.push({ page: s.page, text: s.text.slice(0, Math.floor(budget)) });
-          budget = 0;
-          break;
-        }
-        picked.push({ page: s.page, text: s.text });
-        budget -= s.text.length;
+        if (!s.score && !s.pinned) break;
+        ranked.push(s);
       }
+      const picked = this._fillBudget(ranked, maxChars);
+      return { context: this._assemble(picked, extraText, maxChars), sources: picked.map((p) => p.page) };
+    },
 
+    /** Assemble the fenced context block from whatever pages were chosen,
+        plus the reader's selection and any attached documents. Shared by
+        every scope so the model sees the same shape however pages got here. */
+    _assemble(picked, extraText, maxChars) {
       let context = "";
-      const sources = [];
-      for (const p of picked) {
-        context += `\n\n【Page ${p.page}】\n${p.text}`;
-        sources.push(p.page);
-      }
-      if (extraText.trim()) {
-        context += `\n\n【User selection】\n${extraText.trim()}`;
+      for (const p of picked) context += `\n\n【Page ${p.page}】\n${p.text}`;
+      if (String(extraText || "").trim()) {
+        context += `\n\n【User selection】\n${String(extraText).trim()}`;
       }
       // attached extra documents (📎): included after the open document so
       // the model can compare across files; each is already size-capped
@@ -2750,7 +2888,7 @@
         const room = Math.max(2000, Math.floor(maxChars / 2));
         context += `\n\n【Attached document: ${a.name}】\n${a.text.slice(0, room)}`;
       }
-      return { context, sources };
+      return context;
     },
 
     /* ── quick actions ──────────────────────────────────────── */
@@ -2944,9 +3082,7 @@
       } catch (e) {
         this._app().toast("Could not extract document text: " + e.message, "error");
       }
-      this._app().elements.aiContextLine.textContent = sources.length
-        ? `Context: ${sources.map((p) => `p.${p}`).join(", ")}`
-        : "Context: question only";
+      this._renderContextLine(sources);
 
       this.messages.push({ role: "user", content: text });
       const assistantMsg = { role: "assistant", content: "", sources, error: false };
@@ -3009,6 +3145,17 @@
       } finally {
         this.streaming = false;
         this._routedModel = null; // the borrow lasts exactly one turn
+        /* A turn can end with the bubble still empty — a reply absorbed
+           entirely into a tool call, an abort before the first token — and
+           every path here left the last streaming paint on screen. Harmless
+           while it was a static "…"; with the thinking animation it would
+           pulse forever and keep the compositor busy for the rest of the
+           session. Repaint ONLY when that placeholder is what is on screen:
+           a blanket repaint here rebuilds the whole transcript after every
+           turn, which costs more with each message the conversation gains. */
+        if (this._app().elements.aiMessages.querySelector(".volt-think")) {
+          this._renderMessages();
+        }
         this._showStop(false);
         this._saveChat();
         this._renderModelLine();
@@ -3845,12 +3992,20 @@
       if (welcome) wrap.appendChild(welcome);
       if (!this.messages.length) return;
 
+      const last = this.messages[this.messages.length - 1];
       for (const m of this.messages) {
         const div = document.createElement("div");
         div.className = "msg " + m.role + (m.error ? " error" : "");
         const roleLabel = m.role === "user" ? "You" : "Volt";
         const raw = m.role === "assistant" ? this._cleanAssistantText(m.content) : m.content;
-        let body = Utils.markdown(raw || (m.role === "assistant" ? "…" : ""));
+        /* Waiting on the first token: light the name up instead of a dead "…".
+           Only the last message can be the live one, and only while streaming —
+           a reply that genuinely came back empty must not animate forever. */
+        const thinking = m.role === "assistant" && !raw && m === last && this.streaming;
+        let body = thinking
+          ? '<span class="volt-think" role="status" aria-label="Volt is thinking">'
+            + [..."VOLT"].map((c) => `<i>${c}</i>`).join("") + "</span>"
+          : Utils.markdown(raw || (m.role === "assistant" ? "…" : ""));
         // inline [p.N] citations become jump links (assistant messages only) —
         // clicking one scrolls the viewer to that page and flashes the quoted
         // phrase so the reader sees exactly where the answer came from

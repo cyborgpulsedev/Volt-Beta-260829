@@ -64,6 +64,53 @@
       return "a" + Math.random().toString(36).slice(2, 9) + Date.now().toString(36);
     },
 
+    /** Parse a hand-typed page list ("1-5, 12, 40" / "3 to 7" / "2 9 11")
+        into sorted unique page numbers within 1..max.
+
+        Deliberately tolerant rather than strict: this is typed by a reader
+        who wants pages 3 to 7, not a format to learn. Ranges are matched
+        first so their endpoints are not also read as single pages, a
+        backwards range (9-7) is read as written instead of selecting
+        nothing, and anything out of range is dropped rather than rejecting
+        the whole line. */
+    parsePageList(str, max) {
+      const out = new Set();
+      const LIMIT = 5000; // a fat-fingered "1-999999" must not spin the tab
+      const add = (a, b) => {
+        if (a > b) { const t = a; a = b; b = t; }
+        for (let n = a; n <= b && out.size < LIMIT; n++) {
+          if (n >= 1 && (!max || n <= max)) out.add(n);
+        }
+      };
+      const s = String(str || "");
+      const spans = [];
+      const range = /(\d{1,6})\s*(?:-|–|—|\.\.|to|through)\s*(\d{1,6})/gi;
+      for (let m; (m = range.exec(s)) !== null;) {
+        add(Number(m[1]), Number(m[2]));
+        spans.push([m.index, m.index + m[0].length]);
+      }
+      const single = /\d{1,6}/g;
+      for (let m; (m = single.exec(s)) !== null;) {
+        if (spans.some(([a, b]) => m.index >= a && m.index < b)) continue;
+        add(Number(m[0]), Number(m[0]));
+      }
+      return [...out].sort((x, y) => x - y);
+    },
+
+    /** Render a page list back to the short form a person would type
+        ("1-5, 12, 40"), so the picker shows what it understood. */
+    formatPageList(pages) {
+      const ns = [...new Set(pages)].filter((n) => Number.isFinite(n)).sort((a, b) => a - b);
+      const parts = [];
+      for (let i = 0; i < ns.length;) {
+        let j = i;
+        while (j + 1 < ns.length && ns[j + 1] === ns[j] + 1) j++;
+        parts.push(j > i + 1 ? ns[i] + "-" + ns[j] : ns.slice(i, j + 1).join(", "));
+        i = j + 1;
+      }
+      return parts.join(", ");
+    },
+
     /** tokenize for search / RAG scoring */
     tokenize(text) {
       return String(text || "").toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];

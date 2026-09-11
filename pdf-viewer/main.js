@@ -1919,7 +1919,17 @@ function runSmokeTest(w) {
           try {
             Volt.App._showVersionBanner("volt-probe-auto3");
             Volt.App._verCountdown = 1; // one tick away from zero
-            await new Promise((r) => setTimeout(r, 1300));
+            /* Wait for the RESULT, not for a stopwatch. This slept a flat
+               1300ms for a tick scheduled at 1000ms, so a 300ms hiccup on a
+               loaded two-core CI runner read as "auto-restart is broken".
+               Poll to a generous cap instead: a countdown that genuinely
+               never fires still fails, and the recorded latency says which
+               of the two happened rather than leaving it to be guessed. */
+            const t0 = Date.now();
+            while (autoRestarts === 0 && Date.now() - t0 < 8000) {
+              await new Promise((r) => setTimeout(r, 50));
+            }
+            verBanner.autoFiredMs = Date.now() - t0;
             verBanner.autoFired = autoRestarts === 1 && !Volt.App._verTimer;
           } finally { Volt.App._restartApp = realRestart2; }
           Volt.App._hideVersionBanner();

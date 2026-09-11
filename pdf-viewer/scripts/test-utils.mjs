@@ -22,6 +22,32 @@ function t(name, cond) {
 
 console.log("utils.js unit tests");
 
+// page-list parsing (AI context scope picker) — a reader types these by hand,
+// so tolerance matters more than a format, and an out-of-range page must be
+// dropped rather than sent to a model as a page that does not exist
+const pl = (s, max) => U.parsePageList(s, max).join(",");
+t("parsePageList single numbers", pl("1, 4, 9", 100) === "1,4,9");
+t("parsePageList range", pl("3-6", 100) === "3,4,5,6");
+t("parsePageList mixed", pl("1-3, 12, 40", 100) === "1,2,3,12,40");
+t("parsePageList spaces instead of commas", pl("2 9 11", 100) === "2,9,11");
+t("parsePageList 'to' and en-dash", pl("3 to 5, 8 – 9", 100) === "3,4,5,8,9");
+t("parsePageList backwards range reads as written", pl("9-7", 100) === "7,8,9");
+t("parsePageList dedupes and sorts", pl("5, 1-3, 2, 5", 100) === "1,2,3,5");
+t("parsePageList drops pages past the end", pl("1, 99, 250", 100) === "1,99");
+// page 0 does not exist so it goes; a stray minus is read as punctuation, not
+// a sign, so "-4" is page 4 — tolerant is right for a box a person types into
+t("parsePageList drops page zero", pl("0, 2", 100) === "2");
+t("parsePageList reads a stray minus as punctuation", pl("0, -4, 2", 100) === "2,4");
+t("parsePageList range endpoints are not re-read as singles", pl("10-12", 100) === "10,11,12");
+t("parsePageList clamps a huge range to the document", U.parsePageList("1-999999", 50).length === 50);
+t("parsePageList empty input is empty", pl("", 100) === "" && pl(null, 100) === "");
+t("parsePageList junk is empty", pl("pages please", 100) === "");
+// round-trip: what the picker shows must parse back to what it was given
+t("formatPageList collapses runs", U.formatPageList([1, 2, 3, 4, 5, 12, 40]) === "1-5, 12, 40");
+t("formatPageList leaves pairs alone", U.formatPageList([7, 8]) === "7, 8");
+t("formatPageList round-trips", pl(U.formatPageList([1, 2, 3, 9, 20, 21, 22]), 100) === "1,2,3,9,20,21,22");
+t("formatPageList empty", U.formatPageList([]) === "");
+
 // hash
 t("hash is stable", U.hash("abc") === U.hash("abc"));
 t("hash differs", U.hash("abc") !== U.hash("abd"));
