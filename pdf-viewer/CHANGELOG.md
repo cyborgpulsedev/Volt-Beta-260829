@@ -4,6 +4,40 @@ Each release is a `## x.y.z` section. The version banner tooltip shows the
 sections newer than the installed bundle, so a pending update tells you what
 changed before you restart.
 
+## 1.0.22
+
+**You can now tell the assistant which pages to read.** Volt used to pick them
+for you by guessing which pages looked relevant. Highlight one clause, ask about
+it, and you could get your clause plus six unrelated pages - and no way to say
+no. Now the `Context:` line under the chat box is a button.
+
+- **Three choices: search automatically, only these pages, or only my
+  highlighted text.** Searching automatically is still the default and is
+  unchanged. Naming pages skips the guessing entirely - those pages are what the
+  assistant sees.
+- **A page list Volt cannot read is refused, not quietly ignored.** If you type
+  a page that is not in the document, Volt says so rather than silently going
+  back to searching. A scope you believe is locked but is not would be worse
+  than the guessing it replaces.
+- **Your choice resets when you open another document**, because a page list
+  describes one file.
+
+**The assistant no longer looks frozen while it thinks.** VOLT lights up in the
+theme's colours from the moment you send until the first words arrive. It also
+stops properly when a reply never comes, instead of pulsing forever.
+
+- **The model's name appears once now, on the button that changes it.** It used
+  to be repeated three times in a 340-pixel panel; the line above it now names
+  the provider instead, which is the one thing the button cannot say.
+
+**Security:** a high-severity fault in a component that ships inside the
+installer (js-yaml, reached through the updater) is fixed. Nothing was known to
+be exploitable in Volt, but it ships in the binary, so it is fixed in the binary.
+
+- Internally: replies no longer rebuild the whole conversation on every turn, a
+  self-test that raced a stopwatch now waits for its result, and the development
+  PDF handler shows as "Volt" rather than "Electron".
+
 ## 1.0.21
 
 **A PDF could tell the assistant to change your file, and it would.** Text
