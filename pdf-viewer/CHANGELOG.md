@@ -4,6 +4,22 @@ Each release is a `## x.y.z` section. The version banner tooltip shows the
 sections newer than the installed bundle, so a pending update tells you what
 changed before you restart.
 
+## 1.0.23
+
+**The security fix 1.0.22 promised was not actually inside 1.0.22.** Yesterday's
+release notes said a high-severity fault in a component that ships in the
+installer was fixed. The fix was in the source, and every one of the thirteen
+release checks passed - but the installer itself was built from an older copy of
+that component still sitting on the build machine, so the binary testers
+downloaded did not contain it. **This release does.** Nothing about 1.0.22 was
+known to be exploitable; it simply did not carry the fix it claimed.
+
+- **Install 1.0.23.** Everything 1.0.22 added is still here, unchanged.
+- The release script now rebuilds its dependencies from the locked list before
+  it packages anything, and refuses to build if that rebuild fails. The checks
+  that passed for 1.0.22 had installed a clean copy in a separate folder, so
+  they were testing a different set of files than the one that shipped.
+
 ## 1.0.22
 
 **You can now tell the assistant which pages to read.** Volt used to pick them

@@ -92,6 +92,24 @@ if (allowUnsigned) {
   }
 }
 
+/* electron-builder packages whatever is sitting in node_modules, never the
+   lockfile. 1.0.22 shipped js-yaml 4.3.1 — the file on disk still predated the
+   4.3.2 security bump, so the release notes claimed a fix the binary did not
+   contain. Every gate was green, because ci:local installs into a clean temp
+   clone and therefore tested a DIFFERENT tree from the one that shipped.
+
+   Do NOT swap this for `npm ci --dry-run`: it compares the lockfile against
+   node_modules/.package-lock.json, npm's own metadata, which already claimed
+   4.3.2 while js-yaml's actual files were 4.3.1. It reported no drift over the
+   broken tree. Reinstalling for real is the only check that cannot be fooled. */
+const reinstall = spawnSync(process.platform === "win32" ? "npm.cmd" : "npm",
+  ["ci"], { stdio: "inherit", shell: process.platform === "win32", timeout: 15 * 60 * 1000 });
+if (reinstall.status !== 0) {
+  console.error("❌ npm ci failed — refusing to build from a tree that is not the lockfile.");
+  process.exit(reinstall.status === null ? 1 : reinstall.status);
+}
+console.log("· node_modules reinstalled from package-lock.json");
+
 const extraArgs = process.argv.slice(2);
 console.log(allowUnsigned
   ? "· building UNSIGNED (scratch mode — no publisher verification will be active)"

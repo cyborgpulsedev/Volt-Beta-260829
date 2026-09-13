@@ -1,8 +1,8 @@
-## Volt 1.0.22
+## Volt 1.0.23
 
 Volt is a fast, private, ad-free PDF reader with AI built in — everything renders locally, and you bring your own LLM. No account, no telemetry, no upsells.
 
-**Please update.** This release hands you control over which pages the assistant reads, and fixes a high-severity fault in a component that ships inside the installer.
+**Please update.** Yesterday's 1.0.22 said it fixed a high-severity fault in a component that ships inside the installer. It did not — see below. This release does, and keeps everything 1.0.22 added.
 
 ### You choose which pages the assistant reads
 
@@ -25,9 +25,13 @@ VOLT now lights up in the theme's colours from the moment you send your question
 
 The model's name now appears once, on the button that changes it. It used to be repeated three times inside a 340-pixel panel; the line above the button names the provider instead — the one thing the button itself cannot tell you.
 
-### Security
+### The fix 1.0.22 promised was not inside 1.0.22
 
-A high-severity fault in `js-yaml`, reached through the updater that ships inside the installer, is fixed. Nothing was known to be exploitable in Volt itself, but the code ships in the binary, so the fix ships in the binary.
+A high-severity fault in `js-yaml`, reached through the updater that ships inside the installer, was fixed in Volt's source and every one of the thirteen release checks passed. The installer was then built from an older copy of `js-yaml` still sitting on the build machine, so the binary you downloaded did not contain the fix its own release notes announced.
+
+Nothing about 1.0.22 was known to be exploitable in Volt — it simply did not carry the fix it claimed. **1.0.23 does**, and everything 1.0.22 added is here unchanged.
+
+The cause was that the release checks install a clean copy of every dependency into a separate folder, while the installer was packaged from whatever was already on the build machine — so the checks and the shipped product were testing different files. The release script now rebuilds from the locked dependency list before it packages anything, and refuses to build at all if that rebuild fails.
 
 One limitation worth restating: certificates protected with the older RC2-40 encryption, which some older Windows exports produce, are still not supported. Volt says so clearly instead of failing partway through.
 
@@ -42,7 +46,7 @@ One limitation worth restating: certificates protected with the older RC2-40 enc
 - Read aloud with local voices, and talk to the AI with your microphone
 
 **Install**
-- **New installs:** download `Volt-Setup-1.0.22.exe` and run it — per-user install, no admin needed. SmartScreen will warn on first launch: click "More info" → "Run anyway".
+- **New installs:** download `Volt-Setup-1.0.23.exe` and run it — per-user install, no admin needed. SmartScreen will warn on first launch: click "More info" → "Run anyway".
 - **Existing installs:** if you are on 1.0.9 or later, this arrives on its own. If you are on 1.0.8 or earlier, install by hand once — automatic updates were broken before 1.0.9 and the version you have is the one that rejects them.
 
 **Requirements**
