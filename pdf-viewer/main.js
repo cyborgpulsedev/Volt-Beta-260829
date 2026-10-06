@@ -1165,7 +1165,6 @@ async function validateOfficeStage(docxPath, xlsxPath, pptxPath, subsetPath, sub
     the toolbar never overflows, then restores the original window size.
     Pure layout check — no focus needed, so it runs in --smoke-no-focus too. */
 async function toolbarResizeStage(w) {
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const js = (code) => w.webContents.executeJavaScript(code);    const out = { ok: false, error: null, sizes: [] };
     let resizeOk = true; // every setSize must actually arrive at its target width
     const original = w.getSize();
@@ -1179,39 +1178,24 @@ async function toolbarResizeStage(w) {
     // (840 / 760) cover narrow browser-window widths the desktop app itself
     // can never reach (its floor is 900x600)
     const sizes = [[1280, 900], [1100, 700], [1000, 650], [960, 640], [900, 620], [840, 620], [760, 580]];
-    for (const [w_, h] of sizes) {
-      // The resize must actually ARRIVE before we assert the toolbar at that
-      // width: setSize is async, and a dropped/coalesced one (seen on loaded
-      // CI runners) leaves the previous width in place — which then silently
-      // fails the tier expectations and cascades into the menu-keyboard
-      // probes below. Poll the renderer for the target inner width (outer
-      // minus the platform frame chrome, measured in the renderer), retry the
-      // setSize once, and only record the size once it settles.
-      //
-      // The request itself was MISSING: the loop polled for a width it had
-      // never asked for, so every size waited out the full 2s window and was
-      // only ever resized by the "retry" branch below. That wasted ~14s a run
-      // and, worse, left the real resize with a single 2s window on exactly
-      // the loaded runners this polling exists to survive.
-      w.setSize(w_, h);
-      const settled = await js(`(async () => {
-        const frame = window.outerWidth - window.innerWidth;
-        const target = ${w_} - frame;
-        const reach = (timeout) => new Promise((resolve) => {
-          const start = Date.now();
-          const tick = () => {
-            if (window.innerWidth === target) return resolve(true);
-            if (Date.now() - start > timeout) return resolve(false);
-            setTimeout(tick, 40);
-          };
-          tick();
-        });
-        if (await reach(2000)) return { ok: true };
-        return { ok: false, inner: window.innerWidth, target }; // retried by the caller
-      })()`);
-      if (!settled.ok) {
-        w.setSize(w_, h); // first attempt was dropped/coalesced — try again
-        const retry = await js(`(async () => {
+    /* Ask for a size and WAIT for it to arrive. setSize is async, and a
+       dropped or coalesced one (seen on loaded CI runners) leaves the old
+       width in place. Poll the renderer for the target inner width (outer
+       minus the platform frame chrome, measured in the renderer) and ask
+       again once before giving up.
+
+       The restore after this loop used to skip all of that and sleep a flat
+       300ms. On a cold run that was not enough: the window was still 760px,
+       and at 840px and below the whole Volt menu is display:none (.tb-brand),
+       so Alt+B had nothing it could focus. Four keyboard checks failed under
+       a stage named for window sizes while every size passed - which is why
+       the first recorded signature blamed the sizes. Forcing the restore to
+       stay narrow reproduces that failure term for term. */
+    const resizeTo = async (w_, h) => {
+      let got = null;
+      for (let attempt = 0; attempt < 2 && !(got && got.ok); attempt++) {
+        w.setSize(w_, h);
+        got = await js(`(async () => {
           const frame = window.outerWidth - window.innerWidth;
           const target = ${w_} - frame;
           const start = Date.now();
@@ -1221,11 +1205,15 @@ async function toolbarResizeStage(w) {
           }
           return { ok: false, inner: window.innerWidth, target };
         })()`);
-        if (!retry.ok) {
-          resizeOk = false;
-          out.error = "smoke could not resize the window to " + w_ + "px " +
-            "(inner stayed " + retry.inner + ", target " + retry.target + ") — ";
-        }
+      }
+      return got;
+    };
+    for (const [w_, h] of sizes) {
+      const got = await resizeTo(w_, h);
+      if (!got.ok) {
+        resizeOk = false;
+        out.error = "smoke could not resize the window to " + w_ + "px " +
+          "(inner stayed " + got.inner + ", target " + got.target + ") — ";
       }
       const m = await js(`(() => {
         const tb = document.getElementById("toolbar");
@@ -1279,10 +1267,14 @@ async function toolbarResizeStage(w) {
     // dropdowns hold the regrouped items, open exactly their own panel
     // (visible), and closing restores the [hidden] display contract; a real
     // item click still reaches its action (Volt → Export opens the modal)
-    w.setSize(original[0], original[1]);
-    await sleep(300); // layout settles before the keyboard probe
+    const back = await resizeTo(original[0], original[1]);
+    if (!back.ok) {
+      resizeOk = false;
+      out.error = (out.error || "") + "smoke could not restore the window to " + original[0] +
+        "px (inner stayed " + back.inner + ", target " + back.target + "), so the menu checks ran too narrow — ";
+    }
     const menuCheck = await js(`(async () => {
-      const out = {};
+      const out = { innerW: window.innerWidth }; // the width these checks actually ran at
       const has = (id) => !!document.getElementById(id);
       // File's items moved under the Volt-logo menu (menu-brand); the Markup
       // menu holds the annotation tools + insertions

@@ -13,9 +13,10 @@
      • the signer certificate (+ chain) embedded in the CMS
 
    Everything is self-contained: ASN.1 DER, PKCS#12 decryption
-   (PBES1-3DES and PBES2-AES, with the MAC verified so a wrong
-   password fails cleanly), TripleDES in pure JS (Web Crypto has no
-   3DES — verified against Node's crypto in the unit tests), and the
+   (PBES1-3DES, PBES1-RC2-40 and PBES2-AES, with the MAC verified so a
+   wrong password fails cleanly), TripleDES and RC2 in pure JS (Web
+   Crypto has neither — both verified against OpenSSL in the unit
+   tests), and the
    byte surgery that patches the ByteRange + Contents in place without
    moving a single offset. Runs entirely in the renderer via Web
    Crypto (or Node's crypto in tests). Pure-ish: no DOM.
@@ -179,6 +180,90 @@
     return { cbcDecrypt, subkeys };
   })();
 
+  /* ── RC2 (RFC 2268, pure JS — decrypt only) ────────────────────
+     Older Windows and Java exporters encrypt the certificate bag with
+     pbeWithSHAAnd40BitRC2-CBC. Web Crypto has no RC2, and OpenSSL 3 keeps
+     it behind the legacy provider, which Electron does not load — so
+     without this those certificates cannot sign at all. */
+  const _rc2 = (() => {
+    // prettier-ignore
+    const PI = [
+      0xd9,0x78,0xf9,0xc4,0x19,0xdd,0xb5,0xed,0x28,0xe9,0xfd,0x79,0x4a,0xa0,0xd8,0x9d,
+      0xc6,0x7e,0x37,0x83,0x2b,0x76,0x53,0x8e,0x62,0x4c,0x64,0x88,0x44,0x8b,0xfb,0xa2,
+      0x17,0x9a,0x59,0xf5,0x87,0xb3,0x4f,0x13,0x61,0x45,0x6d,0x8d,0x09,0x81,0x7d,0x32,
+      0xbd,0x8f,0x40,0xeb,0x86,0xb7,0x7b,0x0b,0xf0,0x95,0x21,0x22,0x5c,0x6b,0x4e,0x82,
+      0x54,0xd6,0x65,0x93,0xce,0x60,0xb2,0x1c,0x73,0x56,0xc0,0x14,0xa7,0x8c,0xf1,0xdc,
+      0x12,0x75,0xca,0x1f,0x3b,0xbe,0xe4,0xd1,0x42,0x3d,0xd4,0x30,0xa3,0x3c,0xb6,0x26,
+      0x6f,0xbf,0x0e,0xda,0x46,0x69,0x07,0x57,0x27,0xf2,0x1d,0x9b,0xbc,0x94,0x43,0x03,
+      0xf8,0x11,0xc7,0xf6,0x90,0xef,0x3e,0xe7,0x06,0xc3,0xd5,0x2f,0xc8,0x66,0x1e,0xd7,
+      0x08,0xe8,0xea,0xde,0x80,0x52,0xee,0xf7,0x84,0xaa,0x72,0xac,0x35,0x4d,0x6a,0x2a,
+      0x96,0x1a,0xd2,0x71,0x5a,0x15,0x49,0x74,0x4b,0x9f,0xd0,0x5e,0x04,0x18,0xa4,0xec,
+      0xc2,0xe0,0x41,0x6e,0x0f,0x51,0xcb,0xcc,0x24,0x91,0xaf,0x50,0xa1,0xf4,0x70,0x39,
+      0x99,0x7c,0x3a,0x85,0x23,0xb8,0xb4,0x7a,0xfc,0x02,0x36,0x5b,0x25,0x55,0x97,0x31,
+      0x2d,0x5d,0xfa,0x98,0xe3,0x8a,0x92,0xae,0x05,0xdf,0x29,0x10,0x67,0x6c,0xba,0xc9,
+      0xd3,0x00,0xe6,0xcf,0xe1,0x9e,0xa8,0x2c,0x63,0x16,0x01,0x3f,0x58,0xe2,0x89,0xa9,
+      0x0d,0x38,0x34,0x1b,0xab,0x33,0xff,0xb0,0xbb,0x48,0x0c,0x5f,0xb9,0xb1,0xcd,0x2e,
+      0xc5,0xf3,0xdb,0x47,0xe5,0xa5,0x9c,0x77,0x0a,0xa6,0x20,0x68,0xfe,0x7f,0xc1,0xad,
+    ];
+
+    /** RFC 2268 §2 key expansion → 64 sixteen-bit subkeys. `bits` is the
+        EFFECTIVE key length, which is what the "40" in RC2-40 means — it is
+        not always key.length * 8, and getting it wrong decrypts to garbage. */
+    function expand(key, bits) {
+      const T = key.length;
+      const L = new Uint8Array(128);
+      L.set(key);
+      for (let i = T; i < 128; i++) L[i] = PI[(L[i - 1] + L[i - T]) & 0xff];
+      const T8 = (bits + 7) >> 3;
+      const TM = 0xff >> (8 * T8 - bits);
+      L[128 - T8] = PI[L[128 - T8] & TM];
+      for (let i = 127 - T8; i >= 0; i--) L[i] = PI[L[i + 1] ^ L[i + T8]];
+      const K = new Uint16Array(64);
+      for (let i = 0; i < 64; i++) K[i] = L[2 * i] | (L[2 * i + 1] << 8);
+      return K;
+    }
+
+    const S = [1, 2, 3, 5];
+    /** RFC 2268 §4.1: five reverse mixing rounds, a reverse mash, six, a
+        mash, five — the encryption schedule run backwards. Words are
+        little-endian. R[i-1], R[i-2], R[i-3] wrap mod 4. */
+    function decryptBlock(K, src, so, dst, d0) {
+      const R = [
+        src[so] | (src[so + 1] << 8), src[so + 2] | (src[so + 3] << 8),
+        src[so + 4] | (src[so + 5] << 8), src[so + 6] | (src[so + 7] << 8),
+      ];
+      let j = 63;
+      const mix = () => {
+        for (let i = 3; i >= 0; i--) {
+          R[i] = ((R[i] >>> S[i]) | (R[i] << (16 - S[i]))) & 0xffff;
+          R[i] = (R[i] - K[j--] - (R[(i + 3) & 3] & R[(i + 2) & 3]) - (~R[(i + 3) & 3] & R[(i + 1) & 3])) & 0xffff;
+        }
+      };
+      const mash = () => {
+        for (let i = 3; i >= 0; i--) R[i] = (R[i] - K[R[(i + 3) & 3] & 63]) & 0xffff;
+      };
+      for (let n = 0; n < 5; n++) mix();
+      mash();
+      for (let n = 0; n < 6; n++) mix();
+      mash();
+      for (let n = 0; n < 5; n++) mix();
+      for (let i = 0; i < 4; i++) { dst[d0 + 2 * i] = R[i] & 0xff; dst[d0 + 2 * i + 1] = R[i] >>> 8; }
+    }
+
+    /** CBC decrypt. Padding is left on — the caller strips it, as with 3DES. */
+    function cbcDecrypt(key, bits, iv, data) {
+      const K = expand(key, bits);
+      const out = new Uint8Array(data.length);
+      for (let o = 0; o < data.length; o += 8) {
+        decryptBlock(K, data, o, out, o);
+        const prev = o === 0 ? iv : data.subarray(o - 8, o);
+        for (let i = 0; i < 8; i++) out[o + i] ^= prev[i];
+      }
+      return out;
+    }
+    return { cbcDecrypt, decryptBlock, expand, PI };
+  })();
+
   /* ── PKCS#12 ───────────────────────────────────────────────── */
   const OID = {
     data: "1.2.840.113549.1.7.1",
@@ -197,6 +282,7 @@
     signatureTimeStamp: "1.2.840.113549.1.9.16.2.14", // id-aa-signatureTimeStampToken (PAdES)
     idCtTstInfo: "1.2.840.113549.1.9.16.1.4",         // id-ct-TSTInfo (token eContentType)
     pbe3des: "1.2.840.113549.1.12.1.3",
+    pbeRc2_40: "1.2.840.113549.1.12.1.6", // pbeWithSHAAnd40BitRC2-CBC
     keyBag: "1.2.840.113549.1.12.10.1.1",
     pkcs8ShroudedKeyBag: "1.2.840.113549.1.12.10.1.2",
     certBag: "1.2.840.113549.1.12.10.1.3",
@@ -439,6 +525,15 @@
         const iv = await _pkcs12Kdf(subtle, password, salt, iter, 8, 2);
         const plain = _des3.cbcDecrypt(key, iv, encrypted);
         return this._unpad(plain);
+      }
+      if (oid === OID.pbeRc2_40) {
+        // same PKCS#12 PBE params and KDF as 3DES; a 5-byte key, 40 effective bits
+        const pp = _d.children(params.value, 0, params.value.length);
+        const salt = pp[0].value;
+        const iter = this._intOf(pp[1].value);
+        const key = await _pkcs12Kdf(subtle, password, salt, iter, 5, 1);
+        const iv = await _pkcs12Kdf(subtle, password, salt, iter, 8, 2);
+        return this._unpad(_rc2.cbcDecrypt(key, 40, iv, encrypted));
       }
       if (oid === OID.pbes2) {
         const pp = _d.children(params.value, 0, params.value.length);
@@ -908,8 +1003,9 @@
 
   const Volt = global.Volt = global.Volt || {};
   Volt.Sign = Sign;
-  // expose internals for the unit tests (pure-JS 3DES verified against Node)
+  // expose internals for the unit tests (pure-JS 3DES and RC2 verified against Node)
   Sign._des3 = _des3;
+  Sign._rc2 = _rc2;
   Sign._d = _d;
   Sign._pkcs12Kdf = _pkcs12Kdf;
   Sign._x509Parse = _x509Parse;

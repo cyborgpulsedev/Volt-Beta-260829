@@ -1,39 +1,25 @@
-## Volt 1.0.23
+## Volt 1.0.24
 
 Volt is a fast, private, ad-free PDF reader with AI built in — everything renders locally, and you bring your own LLM. No account, no telemetry, no upsells.
 
-**Please update.** Yesterday's 1.0.22 said it fixed a high-severity fault in a component that ships inside the installer. It did not — see below. This release does, and keeps everything 1.0.22 added.
+**Please update.** This release fixes four high-severity security flaws in the engine Volt runs on, and lets certificates from older Windows and Java exports sign documents.
 
-### You choose which pages the assistant reads
+### Security: four high-severity flaws in the engine underneath Volt
 
-Volt used to pick them for you, by scoring which pages looked relevant to your question. Highlight a single clause, ask about it, and you could get your clause plus six unrelated pages — with no way to say no.
+Volt is built on Electron, which carries its own copy of Chrome inside the app. The version shipped in 1.0.23 (Electron 43.4.0) had four published high-severity flaws:
 
-The `Context:` line under the chat box is now a button. It offers three choices:
+- a window opened from a sandboxed page did not keep that page's sandbox restrictions;
+- responses from custom file and web handlers could be read by pages from other sites;
+- embedded web content could switch on Node.js in its background workers even when the app had it switched off;
+- a compromised page could plant code in the cache that sandboxed startup scripts load from, and have it run on a later load.
 
-- **Search automatically** — the old behaviour, still the default, unchanged.
-- **Only these pages** — type a page list like `4, 9-12`. Volt skips the guessing entirely; those pages are exactly what the assistant sees.
-- **Only my highlighted text** — nothing else from the document goes with the question.
+**1.0.24 moves to Electron 43.5.0, which fixes all four.** Nothing was known to be exploited through Volt, but the engine ships inside the app, so the fix has to ship inside the app. Volt looks and behaves exactly the same — only the engine underneath changed.
 
-Two things worth knowing:
+### Certificates from older Windows and Java exports now sign
 
-- **A page list Volt cannot read is refused, not quietly ignored.** Type a page that is not in the document and Volt tells you, rather than silently falling back to searching. A scope you believe is locked but is not would be worse than the guessing it replaces.
-- **Your choice resets when you open another document**, because a page list describes one file, not a habit.
+Digital signing needs a certificate file (`.pfx` or `.p12`). Many older Windows and Java exports protect part of that file with an old scheme called RC2-40. Volt used to refuse those files. It said so clearly and nothing was ever damaged — but if your certificate was one of them, you could not sign with Volt at all.
 
-### The assistant stops looking frozen
-
-VOLT now lights up in the theme's colours from the moment you send your question until the first words come back. It also stops properly when a reply never arrives, instead of pulsing forever.
-
-The model's name now appears once, on the button that changes it. It used to be repeated three times inside a 340-pixel panel; the line above the button names the provider instead — the one thing the button itself cannot tell you.
-
-### The fix 1.0.22 promised was not inside 1.0.22
-
-A high-severity fault in `js-yaml`, reached through the updater that ships inside the installer, was fixed in Volt's source and every one of the thirteen release checks passed. The installer was then built from an older copy of `js-yaml` still sitting on the build machine, so the binary you downloaded did not contain the fix its own release notes announced.
-
-Nothing about 1.0.22 was known to be exploitable in Volt — it simply did not carry the fix it claimed. **1.0.23 does**, and everything 1.0.22 added is here unchanged.
-
-The cause was that the release checks install a clean copy of every dependency into a separate folder, while the installer was packaged from whatever was already on the build machine — so the checks and the shipped product were testing different files. The release script now rebuilds from the locked dependency list before it packages anything, and refuses to build at all if that rebuild fails.
-
-One limitation worth restating: certificates protected with the older RC2-40 encryption, which some older Windows exports produce, are still not supported. Volt says so clearly instead of failing partway through.
+**Those certificates now open and sign like any other.** The password check is unchanged: a wrong password is still refused before anything is decrypted.
 
 **Highlights**
 - Fully local rendering — vendored pdf.js, works offline, even from `file://`
@@ -46,7 +32,7 @@ One limitation worth restating: certificates protected with the older RC2-40 enc
 - Read aloud with local voices, and talk to the AI with your microphone
 
 **Install**
-- **New installs:** download `Volt-Setup-1.0.23.exe` and run it — per-user install, no admin needed. SmartScreen will warn on first launch: click "More info" → "Run anyway".
+- **New installs:** download `Volt-Setup-1.0.24.exe` and run it — per-user install, no admin needed. SmartScreen will warn on first launch: click "More info" → "Run anyway".
 - **Existing installs:** if you are on 1.0.9 or later, this arrives on its own. If you are on 1.0.8 or earlier, install by hand once — automatic updates were broken before 1.0.9 and the version you have is the one that rejects them.
 
 **Requirements**

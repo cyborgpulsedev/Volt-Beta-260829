@@ -53,6 +53,112 @@ console.log("pdf-sign.js unit tests");
   t("3DES-CBC decrypt full-block matches", Buffer.compare(Buffer.from(dec2), data2) === 0);
 })();
 
+// ── RC2 (RFC 2268) — older Windows/Java PFX exports encrypt with RC2-40 ──
+(() => {
+  // RFC 2268 §5 vector: key ff×8, 64 effective bits, plaintext ff×8
+  const out = new Uint8Array(8);
+  Sign._rc2.decryptBlock(Sign._rc2.expand(Buffer.from("ffffffffffffffff", "hex"), 64),
+    Buffer.from("278b27e42e2f0d49", "hex"), 0, out, 0);
+  t("RC2 decrypts the RFC 2268 known-answer vector", Buffer.from(out).toString("hex") === "ffffffffffffffff");
+  /* A frozen RC2-40-CBC vector, produced by OpenSSL's own RC2. Node only exposes
+     RC2 behind --openssl-legacy-provider, which a runner's Node may not ship, so
+     this vector is what still proves the 40-bit path when the live comparison
+     below cannot run. */
+  const pt = Buffer.from("Volt RC2-40 known-answer vector, two+ blocks");
+  const ct = Buffer.from("e4a00319caf53f50f5e5109d08732d1625e2c093b429b7df3c620cb120da4fe8b4bdabc9cdf6544dd41d5c32b84a16a1", "hex");
+  const mine = Sign._unpad(Sign._rc2.cbcDecrypt(new Uint8Array([1, 2, 3, 4, 5]), 40,
+    new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7]), new Uint8Array(ct)));
+  t("RC2-40-CBC decrypts OpenSSL's frozen vector", Buffer.compare(Buffer.from(mine), pt) === 0);
+  // live comparison against OpenSSL across random keys, IVs and lengths
+  // (including a full-block plaintext, where padding adds a whole block)
+  const cases = [8, 1, 7, 9, 64, 1213].map((n) => ({
+    key: crypto.randomBytes(5).toString("hex"), iv: crypto.randomBytes(8).toString("hex"),
+    pt: crypto.randomBytes(n).toString("hex"),
+  }));
+  let ref = null;
+  try {
+    ref = JSON.parse(execFileSync(process.execPath, ["--openssl-legacy-provider", "-e",
+      "const c=require('crypto');const cs=JSON.parse(process.argv[1]);process.stdout.write(JSON.stringify(cs.map((x)=>{const e=c.createCipheriv('rc2-40-cbc',Buffer.from(x.key,'hex'),Buffer.from(x.iv,'hex'));return Buffer.concat([e.update(Buffer.from(x.pt,'hex')),e.final()]).toString('hex')})))",
+      JSON.stringify(cases)], { encoding: "utf8" }));
+  } catch { /* no legacy provider in this Node */ }
+  if (!ref) {
+    tSkip("RC2-40-CBC decrypt matches Node crypto — this Node has no legacy provider");
+  } else {
+    const ok = cases.every((x, i) => {
+      const dec = Sign._unpad(Sign._rc2.cbcDecrypt(new Uint8Array(Buffer.from(x.key, "hex")), 40,
+        new Uint8Array(Buffer.from(x.iv, "hex")), new Uint8Array(Buffer.from(ref[i], "hex"))));
+      return Buffer.from(dec).toString("hex") === x.pt;
+    });
+    t("RC2-40-CBC decrypt matches Node crypto (6 random keys and lengths)", ok);
+  }
+})();
+
+// ── A committed RC2-40 PFX: the PKCS#12 path must not depend on the runner ──
+/* The legacy-export checks further down mint fresh PFXs with `openssl -legacy`,
+   and the 2-core CI runner's openssl has no legacy provider, so there they skip
+   (seen 2026-10-06). This throwaway certificate - both bags under RC2-40,
+   password volt-test-pass, trusted by nothing - runs everywhere. Its key and
+   certificate are pinned by SHA-256 of what openssl wrote, not stored, so no
+   private key sits in the tree in a form a secret scanner would block. */
+{
+  const pfx = new Uint8Array(Buffer.from([
+    "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",
+  ].join(""), "base64"));
+  const sha = (u8) => crypto.createHash("sha256").update(u8).digest("hex");
+  let fx = null;
+  try { fx = await Sign.parsePfx(pfx, "volt-test-pass"); } catch (e) { console.log("      error: " + e.message); }
+  t("committed RC2-40 PFX: key byte-for-byte (SHA-256 pinned)",
+    !!fx && sha(fx.key) === "f341b2c3f18ca1667ee23780a4892e1170106cfdd14e65f096d3ddbc4c3bdaa7");
+  t("committed RC2-40 PFX: certificate byte-for-byte (SHA-256 pinned)",
+    !!fx && sha(fx.signer) === "8e81b0006306cc60157f8107fcb0d28c650ce5e1d7700251b788ab868cfc6226");
+  let fxWrong = false;
+  try { await Sign.parsePfx(pfx, "definitely-wrong"); } catch (e) { fxWrong = /password/i.test(e.message); }
+  t("committed RC2-40 PFX: wrong password is rejected (MAC)", fxWrong);
+  try {
+    const doc = await globalThis.PDFLib.PDFDocument.create();
+    doc.addPage([400, 300]);
+    const signed = await Sign.signPdf(await doc.save({ useObjectStreams: false }),
+      { pfxBytes: pfx, password: "volt-test-pass", page: 1, reason: "RC2-40 fixture" });
+    t("committed RC2-40 PFX: signs a PDF", Buffer.from(signed).toString("latin1").includes("/adbe.pkcs7.detached"));
+  } catch (e) {
+    t("committed RC2-40 PFX: signs a PDF", false);
+    console.log("      error: " + e.message);
+  }
+}
+
 // ── RFC 3161 timestamp request structure (pure ASN.1, no network) ──
 (() => {
   const imprint = crypto.createHash("sha256").update("volt tsa unit").digest();
@@ -323,6 +429,51 @@ async function runOpensslPfx() {
     } catch (e) {
       t("OpenSSL-3 PFX signs a PDF with /Sig + /ByteRange", false);
       console.log("      error: " + e.message);
+    }
+
+    /* ── Legacy exports: the certificate bag under RC2-40 ──
+       `-legacy` writes what older Windows and Java exporters write: a SHA-1
+       MAC, the certificate bag under pbeWithSHAAnd40BitRC2-CBC and the key
+       under 3DES. Until 2026-10 Volt refused these outright. The second shape
+       puts the KEY under RC2-40 too, so the key bytes themselves cross the RC2
+       path, not just the certificate. */
+    const truthCert = new Uint8Array(Buffer.from(
+      readFileSync(certPem, "utf8").replace(/-----[^-]+-----/g, "").replace(/\s+/g, ""), "base64"));
+    for (const [label, extra] of [
+      ["legacy PFX (RC2-40 certificate bag, 3DES key)", []],
+      ["legacy PFX with the key under RC2-40 too", ["-keypbe", "PBE-SHA1-RC2-40", "-certpbe", "PBE-SHA1-RC2-40"]],
+    ]) {
+      const lp = join(work, "legacy-" + extra.length + ".pfx");
+      try {
+        execFileSync("openssl", ["pkcs12", "-export", "-legacy", ...extra, "-out", lp, "-inkey", keyPem,
+          "-in", certPem, "-passout", "pass:" + password], { stdio: "ignore" });
+      } catch {
+        tSkip(label + " — this openssl has no legacy provider");
+        continue;
+      }
+      const lb = new Uint8Array(readFileSync(lp));
+      let lr = null;
+      try { lr = await Sign.parsePfx(lb, password); } catch (e) { console.log("      error: " + e.message); }
+      t(label + ": key byte-for-byte",
+        !!lr && lr.key.length === truePkcs8.length && lr.key.every((b, i) => b === truePkcs8[i]));
+      t(label + ": certificate byte-for-byte",
+        !!lr && lr.signer.length === truthCert.length && lr.signer.every((b, i) => b === truthCert[i]));
+      let lWrong = false;
+      try { await Sign.parsePfx(lb, "definitely-wrong"); } catch (e) { lWrong = /password/i.test(e.message); }
+      t(label + ": wrong password is rejected (MAC)", lWrong);
+      if (!extra.length) {
+        try {
+          const mLib3 = await import("file:///" + join(__dirname, "..", "vendor", "pdf-lib.min.js").replace(/\\/g, "/") + "?t=sign3");
+          const PDFLib3 = mLib3.default || mLib3;
+          const doc3 = await PDFLib3.PDFDocument.create();
+          doc3.addPage([400, 300]);
+          const signed3 = await Sign.signPdf(await doc3.save({ useObjectStreams: false }), { pfxBytes: lb, password, page: 1, reason: "RC2-40 PFX test" });
+          t(label + ": signs a PDF", Buffer.from(signed3).toString("latin1").includes("/adbe.pkcs7.detached"));
+        } catch (e) {
+          t(label + ": signs a PDF", false);
+          console.log("      error: " + e.message);
+        }
+      }
     }
 
     // ── RFC 3161 timestamp token from a local OpenSSL TSA (hermetic) ──

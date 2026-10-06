@@ -4,6 +4,33 @@ Each release is a `## x.y.z` section. The version banner tooltip shows the
 sections newer than the installed bundle, so a pending update tells you what
 changed before you restart.
 
+## 1.0.24
+
+**Security: the engine Volt runs on had four high-severity holes.** Volt is
+built on Electron, which bundles its own copy of Chrome, and the version inside
+1.0.23 had four published high-severity flaws: windows opened from a sandboxed
+page lost its restrictions, custom file and web handlers could be read across
+sites, embedded web content could switch Node.js on in its background workers,
+and a compromised page could plant code in the sandboxed startup-script cache.
+Nothing was known to be exploited through Volt, but the
+engine ships inside the app, so the fix has to ship inside the app.
+
+- **Electron 43.4.0 → 43.5.0**, which fixes all four. Volt behaves the same;
+  only the engine underneath changed.
+
+**Certificates from older Windows and Java exports can now sign.** Volt used to
+refuse any certificate file whose contents were protected with RC2-40, the
+scheme many older Windows and Java exports use. It said so clearly and nothing
+was ever damaged, but if your certificate was one of them you could not sign
+with Volt at all. Those files now open and sign like any other.
+
+- The password check is unchanged: a wrong password is still refused before
+  anything is decrypted.
+
+- Internally: a self-test that occasionally failed on a cold start now waits
+  for its window to finish resizing instead of guessing how long that takes,
+  and says so plainly if it never does.
+
 ## 1.0.23
 
 **The security fix 1.0.22 promised was not actually inside 1.0.22.** Yesterday's
